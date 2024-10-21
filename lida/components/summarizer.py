@@ -6,6 +6,7 @@ from lida.utils import clean_code_snippet, read_dataframe
 from lida.datamodel import TextGenerationConfig
 from llmx import TextGenerator
 import warnings
+import dask.dataframe as dd
 
 system_prompt = """
 You are an experienced data analyst that can annotate datasets. Your instructions are as follows:
@@ -33,10 +34,16 @@ class Summarizer():
 
     def get_column_properties(self, df: pd.DataFrame, n_samples: int = 3) -> list[dict]:
         """Get properties of each column in a pandas DataFrame"""
+        
+        # If the dataframe is too large, sample the data to reduce processing load
+        if len(df) > 100000:  # Adjust this threshold as needed
+            df = df.sample(n=10000, random_state=42)  # Sample 10,000 rows for analysis
+
         properties_list = []
         for column in df.columns:
             dtype = df[column].dtype
             properties = {}
+
             if dtype in [int, float, complex]:
                 properties["dtype"] = "number"
                 properties["std"] = self.check_type(dtype, df[column].std())
@@ -65,7 +72,7 @@ class Summarizer():
             else:
                 properties["dtype"] = str(dtype)
 
-            # add min max if dtype is date
+            # Add min/max if dtype is date
             if properties["dtype"] == "date":
                 try:
                     properties["min"] = df[column].min()
@@ -74,6 +81,7 @@ class Summarizer():
                     cast_date_col = pd.to_datetime(df[column], errors='coerce')
                     properties["min"] = cast_date_col.min()
                     properties["max"] = cast_date_col.max()
+
             # Add additional properties to the output dictionary
             nunique = df[column].nunique()
             if "samples" not in properties:
@@ -85,51 +93,60 @@ class Summarizer():
             properties["num_unique_values"] = nunique
             properties["semantic_type"] = ""
             properties["description"] = ""
-            properties_list.append(
-                {"column": column, "properties": properties})
+            properties_list.append({"column": column, "properties": properties})
 
         return properties_list
 
-    def enrich(self, base_summary: dict, text_gen: TextGenerator,
-               textgen_config: TextGenerationConfig) -> dict:
-        """Enrich the data summary with descriptions"""
-        logger.info(f"Enriching the data summary with descriptions")
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "assistant", "content": f"""
-        Annotate the dictionary below. Only return a JSON object.
-        {base_summary}
-        """},
-        ]
+    def enrich(self, base_summary: dict, text_gen: TextGenerator, textgen_config: TextGenerationConfig, retries=3) -> dict:
+        """Enrich the data summary with descriptions and retry if incomplete response is received"""
+        for attempt in range(retries):
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "assistant", "content": f"""
+                Annotate the dictionary below. Only return a JSON object.
+                {base_summary}
+                """},
+            ]
 
-        response = text_gen.generate(messages=messages, config=textgen_config)
-        enriched_summary = base_summary
-        try:
-            json_string = clean_code_snippet(response.text[0]["content"])
-            enriched_summary = json.loads(json_string)
-        except json.decoder.JSONDecodeError:
-            error_msg = f"The model did not return a valid JSON object while attempting to generate an enriched data summary. Consider using a default summary or  a larger model with higher max token length. | {response.text[0]['content']}"
-            logger.info(error_msg)
-            print(response.text[0]["content"])
-            raise ValueError(error_msg + "" + response.usage)
-        return enriched_summary
+            response = text_gen.generate(messages=messages, config=textgen_config)
+            try:
+                json_string = clean_code_snippet(response.text[0]["content"])
+                if json_string.strip() == '{':
+                    raise ValueError("Received incomplete response from Cohere")
+                enriched_summary = json.loads(json_string)
+                return enriched_summary  # Exit if successful
+            except (ValueError, json.decoder.JSONDecodeError):
+                if attempt < retries - 1:
+                    print(f"Retrying... Attempt {attempt + 1}")
+                    continue
+                else:
+                    # If failed after all retries, set a default value for enriched_summary
+                    print("Fallback triggered: Setting default summary")
+                    return base_summary
+
+
+
 
     def summarize(
-            self, data: Union[pd.DataFrame, str],
+                self, data: Union[pd.DataFrame, str],
             text_gen: TextGenerator, file_name="", n_samples: int = 3,
             textgen_config=TextGenerationConfig(n=1),
             summary_method: str = "default", encoding: str = 'utf-8') -> dict:
-        """Summarize data from a pandas DataFrame or a file location"""
+        """Summarize data from a pandas or Dask DataFrame or a file location"""
 
-        # if data is a file path, read it into a pandas DataFrame, set file_name to the file name
+        # If data is a file path, read it into a pandas or Dask DataFrame
         if isinstance(data, str):
             file_name = data.split("/")[-1]
-            # modified to include encoding
             data = read_dataframe(data, encoding=encoding)
+            
+        # If data is a Dask DataFrame, trigger computation to convert it into a pandas DataFrame
+        if isinstance(data, dd.DataFrame):
+            data = data.compute()
+
         data_properties = self.get_column_properties(data, n_samples)
 
-        # default single stage summary construction
+        # Default single stage summary construction
         base_summary = {
             "name": file_name,
             "file_name": file_name,
@@ -139,14 +156,14 @@ class Summarizer():
 
         data_summary = base_summary
 
+        # Enrich with LLM if necessary
         if summary_method == "llm":
-            # two stage summarization with llm enrichment
             data_summary = self.enrich(
                 base_summary,
                 text_gen=text_gen,
                 textgen_config=textgen_config)
         elif summary_method == "columns":
-            # no enrichment, only column names
+            # No enrichment, only column names
             data_summary = {
                 "name": file_name,
                 "file_name": file_name,

@@ -12,6 +12,8 @@ import tiktoken
 from diskcache import Cache
 import hashlib
 import io
+import dask.dataframe as dd
+
 
 logger = logging.getLogger("lida")
 
@@ -42,14 +44,11 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned_df
 
 
-def read_dataframe(file_location: str, encoding: str = 'utf-8') -> pd.DataFrame:
+
+def read_dataframe(file_location: str, encoding: str = 'utf-8') -> Union[pd.DataFrame, dd.DataFrame]:
     """
     Read a dataframe from a given file location and clean its column names.
-    It also samples down to 4500 rows if the data exceeds that limit.
-
-    :param file_location: The path to the file containing the data.
-    :param encoding: Encoding to use for the file reading.
-    :return: A cleaned DataFrame.
+    For large datasets, we will use Dask to handle distributed loading.
     """
     file_extension = file_location.split('.')[-1]
 
@@ -66,8 +65,18 @@ def read_dataframe(file_location: str, encoding: str = 'utf-8') -> pd.DataFrame:
     if file_extension not in read_funcs:
         raise ValueError('Unsupported file type')
 
+    # Try loading the file
     try:
-        df = read_funcs[file_extension]()
+        # If file is too large, use Dask to load in chunks
+        if file_extension == 'csv' or file_extension == 'tsv':
+            # Use Dask for large CSV/TSV files
+            df = dd.read_csv(file_location, encoding=encoding)
+        elif file_extension == 'parquet':
+            # Dask also supports parquet files
+            df = dd.read_parquet(file_location)
+        else:
+            # Otherwise, use pandas for smaller files
+            df = read_funcs[file_extension]()
     except Exception as e:
         logger.error(f"Failed to read file: {file_location}. Error: {e}")
         raise
@@ -75,32 +84,12 @@ def read_dataframe(file_location: str, encoding: str = 'utf-8') -> pd.DataFrame:
     # Clean column names
     cleaned_df = clean_column_names(df)
 
-    # Sample down to 4500 rows if necessary
-    if len(cleaned_df) > 4500:
-        logger.info(
-            "Dataframe has more than 4500 rows. We will sample 4500 rows.")
+    # If using pandas, we can sample the dataset down to 4500 rows if necessary
+    if isinstance(cleaned_df, pd.DataFrame) and len(cleaned_df) > 4500:
+        logger.info("Dataframe has more than 4500 rows. We will sample 4500 rows.")
         cleaned_df = cleaned_df.sample(4500)
-
-    if cleaned_df.columns.tolist() != df.columns.tolist():
-        write_funcs = {
-            'csv': lambda: cleaned_df.to_csv(file_location, index=False, encoding=encoding),
-            'xls': lambda: cleaned_df.to_excel(file_location, index=False),
-            'xlsx': lambda: cleaned_df.to_excel(file_location, index=False),
-            'parquet': lambda: cleaned_df.to_parquet(file_location, index=False),
-            'feather': lambda: cleaned_df.to_feather(file_location, index=False),
-            'json': lambda: cleaned_df.to_json(file_location, orient='records', index=False, default_handler=str),
-            'tsv': lambda: cleaned_df.to_csv(file_location, index=False, sep='\t', encoding=encoding)
-        }
-
-        if file_extension not in write_funcs:
-            raise ValueError('Unsupported file type')
-
-        try:
-            write_funcs[file_extension]()
-        except Exception as e:
-            logger.error(f"Failed to write file: {file_location}. Error: {e}")
-            raise
-
+    
+    # Return the DataFrame (or Dask DataFrame)
     return cleaned_df
 
 
