@@ -106,6 +106,41 @@ def plot(data: pd.DataFrame):
     return chart
 chart = plot(data) # variable data already contains the data to be plotted and should not be loaded again.  Always include this line. No additional code beyond this line..
 """
+        elif library == "datashader":
+            instructions = {
+                "role": "system",
+                "content": (
+                    f"{general_instructions}. Use Datashader to handle large datasets efficiently. "
+                    "The plot method should return an image created by Datashader.\n"
+                    "Steps to follow:\n"
+                    "- Create a `Canvas` using `datashader.Canvas()`.\n"
+                    "- Aggregate data using Datashader's methods to prepare it for visualization.\n"
+                    "- Convert the aggregation into an image using `datashader.transfer_functions.shade()`.\n"
+                )
+            }
+
+            template = (
+                """
+                import datashader as ds
+                import datashader.transfer_functions as tf
+                import pandas as pd
+                <imports>
+
+                def plot(data: pd.DataFrame):
+                    # Create a canvas to define the area of the plot
+                    canvas = ds.Canvas(plot_width=800, plot_height=600)
+
+                    # Aggregate the data into a format that can be visualized
+                    agg = canvas.points(data, 'x', 'y', ds.reductions.count())
+
+                    # Convert the aggregated data to an image
+                    img = tf.shade(agg)
+
+                    return img
+
+                chart = plot(data)  # 'data' is already loaded. No need for extra data-loading code.
+                """
+            )
 
         else:
             raise ValueError(
@@ -113,3 +148,4 @@ chart = plot(data) # variable data already contains the data to be plotted and s
             )
 
         return template, instructions
+
