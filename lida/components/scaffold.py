@@ -28,16 +28,16 @@ class ChartScaffold(object):
                 "content": f"  {matplotlib_instructions}. Use BaseMap for charts that require a map. "}
             template = \
                 f"""
-import matplotlib.pyplot as plt
-import pandas as pd
-<imports>
-# plan -
-def plot(data: pd.DataFrame):
-    <stub> # only modify this section
-    plt.title('{goal.question}', wrap=True)
-    return plt;
+          import matplotlib.pyplot as plt
+          import pandas as pd
+          <imports>
+          # plan -
+          def plot(data: pd.DataFrame):
+              <stub> # only modify this section
+              plt.title('{goal.question}', wrap=True)
+              return plt;
 
-chart = plot(data) # data already contains the data to be plotted. Always include this line. No additional code beyond this line."""
+          chart = plot(data) # data already contains the data to be plotted. Always include this line. No additional code beyond this line."""
         elif library == "seaborn":
             instructions = {
                 "role": "assistant",
@@ -45,19 +45,19 @@ chart = plot(data) # data already contains the data to be plotted. Always includ
 
             template = \
                 f"""
-import seaborn as sns
-import pandas as pd
-import matplotlib.pyplot as plt
-<imports>
-# solution plan
-# i.  ..
-def plot(data: pd.DataFrame):
+          import seaborn as sns
+          import pandas as pd
+          import matplotlib.pyplot as plt
+          <imports>
+          # solution plan
+          # i.  ..
+          def plot(data: pd.DataFrame):
 
-    <stub> # only modify this section
-    plt.title('{goal.question}', wrap=True)
-    return plt;
+              <stub> # only modify this section
+              plt.title('{goal.question}', wrap=True)
+              return plt;
 
-chart = plot(data) # data already contains the data to be plotted. Always include this line. No additional code beyond this line."""
+          chart = plot(data) # data already contains the data to be plotted. Always include this line. No additional code beyond this line."""
 
         elif library == "ggplot":
             instructions = {
@@ -67,14 +67,14 @@ chart = plot(data) # data already contains the data to be plotted. Always includ
 
             template = \
                 f"""
-import plotnine as p9
-<imports>
-def plot(data: pd.DataFrame):
-    chart = <stub>
+          import plotnine as p9
+          <imports>
+          def plot(data: pd.DataFrame):
+              chart = <stub>
 
-    return chart;
+              return chart;
 
-chart = plot(data) # data already contains the data to be plotted. Always include this line. No additional code beyond this line.. """
+          chart = plot(data) # data already contains the data to be plotted. Always include this line. No additional code beyond this line.. """
 
         elif library == "altair":
             instructions = {
@@ -83,12 +83,12 @@ chart = plot(data) # data already contains the data to be plotted. Always includ
             }
             template = \
                 """
-import altair as alt
-<imports>
-def plot(data: pd.DataFrame):
-    <stub> # only modify this section
-    return chart
-chart = plot(data) # data already contains the data to be plotted.  Always include this line. No additional code beyond this line..
+          import altair as alt
+          <imports>
+          def plot(data: pd.DataFrame):
+              <stub> # only modify this section
+              return chart
+          chart = plot(data) # data already contains the data to be plotted.  Always include this line. No additional code beyond this line..
 """
 
         elif library == "plotly":
@@ -98,54 +98,49 @@ chart = plot(data) # data already contains the data to be plotted.  Always inclu
             }
             template = \
                 """
-import plotly.express as px
-<imports>
-def plot(data: pd.DataFrame):
-    fig = <stub> # only modify this section
+          import plotly.express as px
+          <imports>
+          def plot(data: pd.DataFrame):
+              fig = <stub> # only modify this section
 
-    return chart
-chart = plot(data) # variable data already contains the data to be plotted and should not be loaded again.  Always include this line. No additional code beyond this line..
+              return chart
+          chart = plot(data) # variable data already contains the data to be plotted and should not be loaded again.  Always include this line. No additional code beyond this line..
 """
         elif library == "datashader":
             instructions = {
-                "role": "system",
-                "content": (
-                    f"{general_instructions}. Use Datashader to handle large datasets efficiently. "
-                    "The plot method should return an image created by Datashader.\n"
-                    "Steps to follow:\n"
-                    "- Create a `Canvas` using `datashader.Canvas()`.\n"
-                    "- Aggregate data using Datashader's methods to prepare it for visualization.\n"
-                    "- Convert the aggregation into an image using `datashader.transfer_functions.shade()`.\n"
-                )
-            }
+               "role": "system",
+                "content": f"""{general_instructions}
+                Fill in the `<imports>` section with necessary imports.
 
-            template = (
+                Fill in the `<stub>` section with code that:
+                - Samples the data if it's a Dask DataFrame.
+                - Converts the Dask DataFrame to a Pandas DataFrame.
+                - Preprocesses the data using Pandas methods.
+                - Creates the plot using Datashader functions.
+                - Returns the Datashader image (`img`) for rendering.
+
+                Ensure that:
+                - The code is complete and executable without missing parts.
+                - The `plot` function returns the Datashader image (`img`).
+
+                Do not include any explanations or extraneous text outside of the code.
                 """
-                import datashader as ds
-                import datashader.transfer_functions as tf
-                import pandas as pd
+                    }
+
+            template = f"""
                 <imports>
-
-                def plot(data: pd.DataFrame):
-                    # Create a canvas to define the area of the plot
-                    canvas = ds.Canvas(plot_width=800, plot_height=600)
-
-                    # Aggregate the data into a format that can be visualized
-                    agg = canvas.points(data, 'x', 'y', ds.reductions.count())
-
-                    # Convert the aggregated data to an image
-                    img = tf.shade(agg)
-
+                def plot(data):
+                    # Data preprocessing
+                    <stub>
                     return img
 
-                chart = plot(data)  # 'data' is already loaded. No need for extra data-loading code.
-                """
-            )
+                chart = plot(data)
+          """
+
 
         else:
             raise ValueError(
-                "Unsupported library. Choose from 'matplotlib', 'seaborn', 'plotly', 'bokeh', 'ggplot', 'altair'."
+                "Unsupported library. Choose from 'matplotlib', 'seaborn', 'plotly', 'bokeh', 'ggplot', 'altair','and Datashader'."
             )
 
         return template, instructions
-

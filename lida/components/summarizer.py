@@ -37,13 +37,14 @@ class Summarizer():
     def get_column_properties(self, df: Union[pd.DataFrame, dd.DataFrame], n_samples: int = 3) -> list[dict]:
         """Get properties of each column in a pandas or Dask DataFrame"""
 
-        if isinstance(df, pd.DataFrame) and len(df) > 100000:
-            df = dd.from_pandas(df, npartitions=10)
+        #if isinstance(df, pd.DataFrame) and len(df) > 100000:
+         #   df = dd.from_pandas(df, npartitions=10)
+        # Remove the conversion; ensure data is loaded as Dask DataFrame initially
 
         # If the dataframe is a Dask dataframe, sample it for efficiency
-        if isinstance(df, dd.DataFrame):
-            if len(df) > 100000:
-                df = df.sample(frac=0.1, random_state=42)  # Sample 10% of the data for large datasets
+      #  if isinstance(df, dd.DataFrame):
+       #     if len(df) > 100000:
+        #        df = df.sample(frac=0.1, random_state=42)  # Sample 10% of the data for large datasets
 
         properties_list = []
         for column in df.columns:
@@ -54,9 +55,11 @@ class Summarizer():
                 properties["dtype"] = "number"
                 # For Dask, compute the statistics after delayed calculations
                 if isinstance(df, dd.DataFrame):
-                    properties["std"] = self.check_type(dtype, df[column].std().compute())
-                    properties["min"] = self.check_type(dtype, df[column].min().compute())
-                    properties["max"] = self.check_type(dtype, df[column].max().compute())
+                  #Sampling for big datasets as .compute is expensive for larger datasets
+                  sample_df = df.sample(frac=0.1, random_state=42) 
+                  properties["std"] = self.check_type(dtype, sample_df[column].std().compute())
+                  properties["min"] = self.check_type(dtype, sample_df[column].min().compute())
+                  properties["max"] = self.check_type(dtype, sample_df[column].max().compute())
                 else:
                     properties["std"] = self.check_type(dtype, df[column].std())
                     properties["min"] = self.check_type(dtype, df[column].min())
@@ -113,9 +116,18 @@ class Summarizer():
                         properties["max"] = cast_date_col.max()
 
             # Add additional properties to the output dictionary
+            #if isinstance(df, dd.DataFrame):
+           #     nunique = df[column].nunique().compute()
+          #      non_null_values = df[column].dropna().unique().compute()
+         #   else:
+        #        nunique = df[column].nunique()
+       #         non_null_values = df[column].dropna().unique() 
             if isinstance(df, dd.DataFrame):
-                nunique = df[column].nunique().compute()
-                non_null_values = df[column].dropna().unique().compute()
+                # Approximate unique counts
+                nunique = df[column].nunique_approx().compute()
+                # Sample non-null values without computing all unique values
+                sample_size = min(n_samples * 10, 1000)
+                non_null_values = df[column].dropna().head(sample_size).compute().unique()
             else:
                 nunique = df[column].nunique()
                 non_null_values = df[column].dropna().unique()
@@ -125,13 +137,20 @@ class Summarizer():
                 if isinstance(non_null_values, dd.Series):
                     samples = pd.Series(non_null_values).sample(n_samples, random_state=42).compute().tolist()
                 else:
-                    samples = pd.Series(non_null_values).sample(n_samples, random_state=42).tolist()
+                    n_samples_actual = min(n_samples, len(non_null_values))
+                samples = pd.Series(non_null_values).sample(n=n_samples_actual, random_state=42).tolist()
                 properties["samples"] = samples
-            properties["num_unique_values"] = nunique
-            properties["semantic_type"] = ""
-            properties["description"] = ""
-            properties_list.append({"column": column, "properties": properties})
-
+                properties["num_unique_values"] = nunique
+                properties["semantic_type"] = ""
+                properties["description"] = ""
+                properties_list.append({"column": column, "properties": properties})
+                        #samples = pd.Series(non_null_values).sample(n_samples, random_state=42).tolist()
+                #properties["samples"] = samples
+            #properties["num_unique_values"] = nunique
+            #properties["semantic_type"] = ""
+            #properties["description"] = ""
+            #properties_list.append({"column": column, "properties": properties})
+            
         return properties_list
 
 

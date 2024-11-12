@@ -121,7 +121,6 @@ class VisualizeWebRequest:
     textgen_config: Optional[TextGenerationConfig] = field(
         default_factory=TextGenerationConfig
     )
-    is_large_data: bool = False  # Add this flag to indicate if the data is large
 
 
 @dataclass
@@ -234,5 +233,8 @@ class InfographicsRequest:
     style_prompt: Union[str, List[str]] = ""
     # return_pil: bool = False
 
-
+@dataclass
+class VisualizeWebRequest:
+    ...
+    is_large_data: bool = False  # Add this flag to indicate if the data is large
 

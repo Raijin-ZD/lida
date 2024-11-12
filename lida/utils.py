@@ -87,16 +87,18 @@ def read_dataframe(file_location: str, encoding: str = 'utf-8') -> Union[pd.Data
         raise
 
     # Clean column names
-    if isinstance(df, dd.DataFrame):
-        cleaned_df = clean_column_names(df).compute()
-    else:
-        cleaned_df = clean_column_names(df)
-    #cleaned_df = clean_column_names(df)
+    #if isinstance(df, dd.DataFrame):
+     #   cleaned_df = clean_column_names(df)
+  #  else:
+       # cleaned_df = clean_column_names(df)
+       #cleaned_df = clean_column_names(df)
+    cleaned_df = clean_column_names(df)
 
-    # If using pandas, we can sample the dataset down to 4500 rows if necessary
-    if isinstance(cleaned_df, pd.DataFrame) and len(cleaned_df) > 4500:
-        logger.info("Dataframe has more than 4500 rows. We will sample 4500 rows.")
-        cleaned_df = cleaned_df.sample(4500)
+        # For pandas DataFrames, sample if necessary
+   # if isinstance(cleaned_df, pd.DataFrame):
+    #  if len(cleaned_df) > 10000:
+     #     logger.info("Dataframe has more than 10000 rows. We will sample 10000 rows.")
+      #    cleaned_df = cleaned_df.sample(10000)
     
     # Return the DataFrame (or Dask DataFrame)
     return cleaned_df
