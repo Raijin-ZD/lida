@@ -45,18 +45,25 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+import os
+import pandas as pd
+import dask.dataframe as dd
+from typing import Union
+
 def read_dataframe(file_location: str, encoding: str = 'utf-8') -> Union[pd.DataFrame, dd.DataFrame]:
     """
     Read a dataframe from a given file location and clean its column names.
-    For large datasets, we will use Dask to handle distributed loading.
+    For large datasets (over 400MB), this function uses Dask to handle distributed loading.
     """
     file_extension = file_location.split('.')[-1]
+    file_size_mb = os.path.getsize(file_location) / (1024 * 1024)  # File size in MB
+    print(f"File size is {file_size_mb:.2f} MB.")
 
     read_funcs = {
         'json': lambda: pd.read_json(file_location, orient='records', encoding=encoding),
         'csv': lambda: pd.read_csv(file_location, encoding=encoding),
-        'xls': lambda: pd.read_excel(file_location, encoding=encoding),
-        'xlsx': lambda: pd.read_excel(file_location, encoding=encoding),
+        'xls': lambda: pd.read_excel(file_location),
+        'xlsx': lambda: pd.read_excel(file_location),
         'parquet': pd.read_parquet,
         'feather': pd.read_feather,
         'tsv': lambda: pd.read_csv(file_location, sep="\t", encoding=encoding)
@@ -65,43 +72,36 @@ def read_dataframe(file_location: str, encoding: str = 'utf-8') -> Union[pd.Data
     if file_extension not in read_funcs:
         raise ValueError('Unsupported file type')
 
-    # Try loading the file
+    # Decide on loading method based on file size
     try:
-        # If file is too large, use Dask to load in chunks
-        if file_extension == 'csv' or file_extension == 'tsv':
-            # Use Dask for large CSV/TSV files
-            df = dd.read_csv(file_location, encoding=encoding)
-        elif file_extension == 'parquet':
-            # Dask also supports parquet files
-            df = dd.read_parquet(file_location)
-        elif file_extension in ['xls', 'xlsx']:
-            if os.path.getsize(file_location) > 50 * 1024 * 1024:  # Arbitrary 50MB size to decide
+        if file_size_mb > 400:
+            # For files over 400MB, use Dask for distributed loading
+            if file_extension in ['csv', 'tsv']:
+                print("Loading data as a Dask DataFrame.")
+                df = dd.read_csv(file_location, encoding=encoding)
+            elif file_extension == 'parquet':
+                print("Loading data as a Dask DataFrame.")
+                df = dd.read_parquet(file_location)
+            elif file_extension in ['xls', 'xlsx']:
+                print("Loading data as a Dask DataFrame.")
                 df = dd.read_excel(file_location)
             else:
-                df = read_funcs[file_extension]()
+                raise ValueError('Unsupported file type for Dask loading')
         else:
-            # Otherwise, use pandas for smaller files
+            # For smaller files, load with Pandas
             df = read_funcs[file_extension]()
+            print("Loading data as a Pandas DataFrame.")
+
     except Exception as e:
-        logger.error(f"Failed to read file: {file_location}. Error: {e}")
+        print(f"Failed to read file: {file_location}. Error: {e}")
         raise
 
     # Clean column names
-    #if isinstance(df, dd.DataFrame):
-     #   cleaned_df = clean_column_names(df)
-  #  else:
-       # cleaned_df = clean_column_names(df)
-       #cleaned_df = clean_column_names(df)
     cleaned_df = clean_column_names(df)
 
-        # For pandas DataFrames, sample if necessary
-   # if isinstance(cleaned_df, pd.DataFrame):
-    #  if len(cleaned_df) > 10000:
-     #     logger.info("Dataframe has more than 10000 rows. We will sample 10000 rows.")
-      #    cleaned_df = cleaned_df.sample(10000)
-    
-    # Return the DataFrame (or Dask DataFrame)
+    # Return the DataFrame (either Pandas or Dask)
     return cleaned_df
+
 
 
 def file_to_df(file_location: str):

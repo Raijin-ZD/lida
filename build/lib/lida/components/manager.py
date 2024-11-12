@@ -123,13 +123,17 @@ class Manager(object):
         """
         self.check_textgen(config=textgen_config)
         
-        if isinstance(data, pd.DataFrame) and len(data) > 100000:
-             data = dd.from_pandas(data, npartitions=10)
+        #if isinstance(data, pd.DataFrame) and len(data) > 100000:
+        #     data = dd.from_pandas(data, npartitions=10)
+        #if isinstance(data, str):
+        #    file_name = data.split("/")[-1]
+       #     data = read_dataframe(data)
+       #     data = dd.from_pandas(data, npartitions=10)  # Convert to Dask dataframe for better scalability
+        
         if isinstance(data, str):
             file_name = data.split("/")[-1]
             data = read_dataframe(data)
-            data = dd.from_pandas(data, npartitions=10)  # Convert to Dask dataframe for better scalability
-        
+
 
         self.data = data
         return self.summarizer.summarize(
@@ -194,11 +198,11 @@ class Manager(object):
         summary,
         goal,
         textgen_config: TextGenerationConfig = TextGenerationConfig(),
-        library="seaborn",
+        library="datashader",
         return_error: bool = False,
     ):
-        if len(self.data) > 100000:
-            library = "datashader"
+      #  if len(self.data) > 100000:
+       #     library = "datashader"
 
         if isinstance(goal, dict):
             goal = Goal(**goal)
@@ -208,7 +212,7 @@ class Manager(object):
         self.check_textgen(config=textgen_config)
         code_specs = self.vizgen.generate(
             summary=summary, goal=goal, textgen_config=textgen_config, text_gen=self.text_gen,
-            library=library)
+            library=library)  
         charts = self.execute(
             code_specs=code_specs,
             data=self.data,

@@ -1,10 +1,10 @@
 from lida.components import Manager
 from llmx import llm, TextGenerationConfig
 import os
-lida = Manager(text_gen=llm("openai"))
+lida = Manager(text_gen=llm("cohere"))
 
 
-cars_data_url = "https://raw.githubusercontent.com/uwdata/draco/master/data/cars.csv"
+cars_data_url = "F:/eeeeee/lida/tests/USA_cars_datasets.csv"
 
 
 def test_summarizer():
@@ -70,3 +70,7 @@ def test_vizgen():
     assert os.path.exists(temp_file_path)
     # Clean up
     os.remove(temp_file_path)
+if __name__ == "__main__":
+    test_summarizer()
+    test_goals()
+    test_vizgen()

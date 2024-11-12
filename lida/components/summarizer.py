@@ -8,7 +8,6 @@ from llmx import TextGenerator
 import warnings
 import dask.dataframe as dd
 
-
 system_prompt = """
 You are an experienced data analyst that can annotate datasets. Your instructions are as follows:
 i) ALWAYS generate the name of the dataset and the dataset_description
@@ -18,7 +17,6 @@ You must return an updated JSON dictionary without any preamble or explanation.
 """
 
 logger = logging.getLogger("lida")
-
 
 class Summarizer():
     def __init__(self) -> None:
@@ -33,127 +31,88 @@ class Summarizer():
         else:
             return value
 
-
-    def get_column_properties(self, df: Union[pd.DataFrame, dd.DataFrame], n_samples: int = 3) -> list[dict]:
+    def get_column_properties(self, df: Union[pd.DataFrame, dd.DataFrame], n_samples: int = 3) -> list:
         """Get properties of each column in a pandas or Dask DataFrame"""
-
-        #if isinstance(df, pd.DataFrame) and len(df) > 100000:
-         #   df = dd.from_pandas(df, npartitions=10)
-        # Remove the conversion; ensure data is loaded as Dask DataFrame initially
-
-        # If the dataframe is a Dask dataframe, sample it for efficiency
-      #  if isinstance(df, dd.DataFrame):
-       #     if len(df) > 100000:
-        #        df = df.sample(frac=0.1, random_state=42)  # Sample 10% of the data for large datasets
 
         properties_list = []
         for column in df.columns:
             dtype = df[column].dtype
             properties = {}
 
-            if dtype in [int, float, complex]:
+            if pd.api.types.is_numeric_dtype(dtype):
                 properties["dtype"] = "number"
-                # For Dask, compute the statistics after delayed calculations
                 if isinstance(df, dd.DataFrame):
-                  #Sampling for big datasets as .compute is expensive for larger datasets
-                  sample_df = df.sample(frac=0.1, random_state=42) 
-                  properties["std"] = self.check_type(dtype, sample_df[column].std().compute())
-                  properties["min"] = self.check_type(dtype, sample_df[column].min().compute())
-                  properties["max"] = self.check_type(dtype, sample_df[column].max().compute())
+                    # Use Dask methods with .compute()
+                    properties["std"] = self.check_type(dtype, df[column].std().compute())
+                    properties["min"] = self.check_type(dtype, df[column].min().compute())
+                    properties["max"] = self.check_type(dtype, df[column].max().compute())
                 else:
                     properties["std"] = self.check_type(dtype, df[column].std())
                     properties["min"] = self.check_type(dtype, df[column].min())
                     properties["max"] = self.check_type(dtype, df[column].max())
 
-            elif dtype == bool:
+            elif pd.api.types.is_bool_dtype(dtype):
                 properties["dtype"] = "boolean"
-            elif dtype == object:
-                # For datetime or categorical inference
+
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                properties["dtype"] = "date"
+                if isinstance(df, dd.DataFrame):
+                    properties["min"] = df[column].min().compute()
+                    properties["max"] = df[column].max().compute()
+                else:
+                    properties["min"] = df[column].min()
+                    properties["max"] = df[column].max()
+
+            elif pd.api.types.is_categorical_dtype(dtype):
+                properties["dtype"] = "category"
+
+            else:
+                # Attempt to infer if the column is date
                 try:
                     if isinstance(df, dd.DataFrame):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            pd.to_datetime(df[column].compute(), errors='raise')
+                            sample_values = df[column].dropna().head(1000).compute()
+                            pd.to_datetime(sample_values, errors='raise')
                         properties["dtype"] = "date"
                     else:
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             pd.to_datetime(df[column], errors='raise')
                         properties["dtype"] = "date"
-                except ValueError:
-                    if isinstance(df, dd.DataFrame):
-                        nunique_ratio = (df[column].nunique().compute() / len(df)).compute()
-                    else:
-                        nunique_ratio = df[column].nunique() / len(df)
-                    
+                except (ValueError, TypeError):
+                    nunique_ratio = (df[column].nunique().compute() / df[column].count().compute()) if isinstance(df, dd.DataFrame) else df[column].nunique() / df[column].count()
                     if nunique_ratio < 0.5:
                         properties["dtype"] = "category"
                     else:
                         properties["dtype"] = "string"
-            elif pd.api.types.is_categorical_dtype(df[column]):
-                properties["dtype"] = "category"
-            elif pd.api.types.is_datetime64_any_dtype(df[column]):
-                properties["dtype"] = "date"
-            else:
-                properties["dtype"] = str(dtype)
 
-            # Add min/max if dtype is date
-            if properties["dtype"] == "date":
-                try:
-                    if isinstance(df, dd.DataFrame):
-                        properties["min"] = df[column].min().compute()
-                        properties["max"] = df[column].max().compute()
-                    else:
-                        properties["min"] = df[column].min()
-                        properties["max"] = df[column].max()
-                except TypeError:
-                    cast_date_col = pd.to_datetime(df[column], errors='coerce')
-                    if isinstance(cast_date_col, dd.Series):
-                        properties["min"] = cast_date_col.min().compute()
-                        properties["max"] = cast_date_col.max().compute()
-                    else:
-                        properties["min"] = cast_date_col.min()
-                        properties["max"] = cast_date_col.max()
-
-            # Add additional properties to the output dictionary
-            #if isinstance(df, dd.DataFrame):
-           #     nunique = df[column].nunique().compute()
-          #      non_null_values = df[column].dropna().unique().compute()
-         #   else:
-        #        nunique = df[column].nunique()
-       #         non_null_values = df[column].dropna().unique() 
+            # Sampling non-null values for 'samples' property
             if isinstance(df, dd.DataFrame):
-                # Approximate unique counts
-                nunique = df[column].nunique_approx().compute()
-                # Sample non-null values without computing all unique values
+                # Use .head() to get a small sample without triggering full computation
                 sample_size = min(n_samples * 10, 1000)
-                non_null_values = df[column].dropna().head(sample_size).compute().unique()
+                non_null_values = df[column].dropna().head(sample_size).compute()
             else:
-                nunique = df[column].nunique()
-                non_null_values = df[column].dropna().unique()
+                non_null_values = df[column].dropna()
 
-            if "samples" not in properties:
-                n_samples = min(n_samples, len(non_null_values))
-                if isinstance(non_null_values, dd.Series):
-                    samples = pd.Series(non_null_values).sample(n_samples, random_state=42).compute().tolist()
-                else:
-                    n_samples_actual = min(n_samples, len(non_null_values))
-                samples = pd.Series(non_null_values).sample(n=n_samples_actual, random_state=42).tolist()
-                properties["samples"] = samples
-                properties["num_unique_values"] = nunique
-                properties["semantic_type"] = ""
-                properties["description"] = ""
-                properties_list.append({"column": column, "properties": properties})
-                        #samples = pd.Series(non_null_values).sample(n_samples, random_state=42).tolist()
-                #properties["samples"] = samples
-            #properties["num_unique_values"] = nunique
-            #properties["semantic_type"] = ""
-            #properties["description"] = ""
-            #properties_list.append({"column": column, "properties": properties})
-            
+            # Get unique values from the sample
+            unique_values = non_null_values.unique()
+            n_unique = df[column].nunique_approx().compute() if isinstance(df, dd.DataFrame) else df[column].nunique()
+
+            n_samples_actual = min(n_samples, len(unique_values))
+            if n_samples_actual > 0:
+                samples = pd.Series(unique_values).sample(n=n_samples_actual, random_state=42).tolist()
+            else:
+                samples = []
+
+            properties["samples"] = samples
+            properties["num_unique_values"] = n_unique
+            properties["semantic_type"] = ""
+            properties["description"] = ""
+
+            properties_list.append({"column": column, "properties": properties})
+
         return properties_list
-
-
 
     def enrich(self, base_summary: dict, text_gen: TextGenerator, textgen_config: TextGenerationConfig, retries=3) -> dict:
         """Enrich the data summary with descriptions and retry if incomplete response is received"""
@@ -170,7 +129,7 @@ class Summarizer():
             try:
                 json_string = clean_code_snippet(response.text[0]["content"])
                 if json_string.strip() == '{':
-                    raise ValueError("Received incomplete response from Cohere")
+                    raise ValueError("Received incomplete response from the language model")
                 enriched_summary = json.loads(json_string)
                 return enriched_summary  # Exit if successful
             except (ValueError, json.decoder.JSONDecodeError):
@@ -182,11 +141,8 @@ class Summarizer():
                     print("Fallback triggered: Setting default summary")
                     return base_summary
 
-
-
-
     def summarize(
-                self, data: Union[pd.DataFrame, str],
+            self, data: Union[pd.DataFrame, dd.DataFrame, str],
             text_gen: TextGenerator, file_name="", n_samples: int = 3,
             textgen_config=TextGenerationConfig(n=1),
             summary_method: str = "default", encoding: str = 'utf-8') -> dict:
@@ -196,11 +152,9 @@ class Summarizer():
         if isinstance(data, str):
             file_name = data.split("/")[-1]
             data = read_dataframe(data, encoding=encoding)
-            
-        # If data is a Dask DataFrame, trigger computation to convert it into a pandas DataFrame
-        if isinstance(data, dd.DataFrame):
-            data = data.compute()
 
+        # No need to compute the entire Dask DataFrame
+        # Proceed to get column properties directly
         data_properties = self.get_column_properties(data, n_samples)
 
         # Default single stage summary construction
