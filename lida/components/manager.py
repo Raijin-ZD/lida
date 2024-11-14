@@ -24,6 +24,8 @@ import lida.web as lida
 
 logger = logging.getLogger("lida")
 
+print("manager.py is being imported.") # to see if its updated
+
 
 class Manager(object):
     def __init__(self, text_gen: TextGenerator = None) -> None:
@@ -48,6 +50,7 @@ class Manager(object):
         self.data = None
         self.infographer = None
         self.persona = PersonaExplorer()
+    
 
     def check_textgen(self, config: TextGenerationConfig):
         """

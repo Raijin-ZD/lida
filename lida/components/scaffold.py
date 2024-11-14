@@ -2,9 +2,9 @@ from dataclasses import asdict
 
 from lida.datamodel import Goal
 
-
 class ChartScaffold(object):
     """Return code scaffold for charts in multiple visualization libraries"""
+    print("scaffold tmam")
 
     def __init__(self) -> None:
         pass

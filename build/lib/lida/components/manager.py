@@ -132,13 +132,29 @@ class Manager(object):
         
         if isinstance(data, str):
             file_name = data.split("/")[-1]
-            data = read_dataframe(data)
-
+            file_size = os.path.getsize(data)
+            if file_size < 400 * 1024 * 1024:  # Less than 400MB
+                data = pd.read_csv(data)
+            else:
+                data = dd.read_csv(data)
+        elif isinstance(data, pd.DataFrame):
+            data_size = data.memory_usage(deep=True).sum()
+            if data_size > 400 * 1024 * 1024:
+                data = dd.from_pandas(data, npartitions=10)
+        elif isinstance(data, dd.DataFrame):
+            pass  # Data is already a Dask DataFrame
+        else:
+            raise ValueError("Data must be a pandas or dask DataFrame, or a file path.")
 
         self.data = data
         return self.summarizer.summarize(
-            data=self.data, text_gen=self.text_gen, file_name=file_name, n_samples=n_samples,
-            summary_method=summary_method, textgen_config=textgen_config)
+            data=self.data,
+            text_gen=self.text_gen,
+            file_name=file_name,
+            n_samples=n_samples,
+            summary_method=summary_method,
+            textgen_config=textgen_config,
+        )
 
     def goals(
         self,
@@ -198,7 +214,7 @@ class Manager(object):
         summary,
         goal,
         textgen_config: TextGenerationConfig = TextGenerationConfig(),
-        library="datashader",
+        library="seaborn",
         return_error: bool = False,
     ):
       #  if len(self.data) > 100000:
@@ -208,7 +224,8 @@ class Manager(object):
             goal = Goal(**goal)
         if isinstance(goal, str):
             goal = Goal(question=goal, visualization=goal, rationale="")
-
+        if isinstance(self.data, dd.DataFrame):
+            library = "datashader"
         self.check_textgen(config=textgen_config)
         code_specs = self.vizgen.generate(
             summary=summary, goal=goal, textgen_config=textgen_config, text_gen=self.text_gen,
