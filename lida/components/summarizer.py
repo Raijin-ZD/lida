@@ -72,7 +72,7 @@ class Summarizer():
                     if isinstance(df, dd.DataFrame):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            sample_values = df[column].dropna().head(1000).compute()
+                            sample_values = df[column].dropna()
                             pd.to_datetime(sample_values, errors='raise')
                         properties["dtype"] = "date"
                     else:
@@ -91,7 +91,7 @@ class Summarizer():
             if isinstance(df, dd.DataFrame):
                 # Use .head() to get a small sample without triggering full computation
                 sample_size = min(n_samples * 10, 1000)
-                non_null_values = df[column].dropna().head(sample_size).compute()
+                non_null_values = df[column].dropna()
             else:
                 non_null_values = df[column].dropna()
 
