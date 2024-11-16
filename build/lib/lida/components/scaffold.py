@@ -2,7 +2,6 @@ from dataclasses import asdict
 
 from lida.datamodel import Goal
 
-
 class ChartScaffold(object):
     """Return code scaffold for charts in multiple visualization libraries"""
 
@@ -12,25 +11,27 @@ class ChartScaffold(object):
     def get_template(self, goal: Goal, library: str):
 
         general_instructions = f"""
-If the solution requires a single value (e.g., max, min, median, first, last, etc.), ALWAYS add a line (axvline or axhline) to the chart, ALWAYS with a legend containing the single value (formatted with 0.2F). If using a <field> where semantic_type=date, YOU MUST APPLY the following transform before using that column:
-i) Convert date fields to date types using data['<field>'] = pd.to_datetime(data['<field>'], errors='coerce'), ALWAYS use errors='coerce'
-ii) Drop the rows with NaT values: data = data[pd.notna(data['<field>'])]
-iii) Convert field to the right time format for plotting.
-ALWAYS make sure the x-axis labels are legible (e.g., rotate when needed).
+**Instructions for Generating the Visualization Code:**
 
-Solve the task carefully by completing ONLY the `<imports>` AND `<stub>` section.
+1. **Write simple and clear code** using only basic functions from the specified library ({library}).
+2. **Avoid using advanced or less-known features** unless you are certain they exist and are necessary.
+3. **Use functions and methods that are well-documented and widely used**.
+4. **Do not use any functions or methods unless you are sure they exist in the library's API**.
 
-Given the dataset summary, the `plot(data)` method should generate a {library} chart ({goal.visualization}) that addresses this goal: {goal.question}.
+Given the dataset summary and the visualization goal, the `plot(data)` function should generate a {library} chart ({goal.visualization}) that addresses the goal: {goal.question}.
 
-DO NOT WRITE ANY CODE TO LOAD THE DATA. The data is already loaded and available in the variable `data`.
+**Data Handling:**
+- The data is already loaded and available in the variable `data`.
+- The code should handle both Pandas and Dask DataFrames.
+- If `data` is a Dask DataFrame and the library requires a Pandas DataFrame, convert it appropriately (e.g., using `data.compute()`).
 
-The code should handle both Pandas and Dask DataFrames:
-- If `data` is a Dask DataFrame and the library requires a Pandas DataFrame, sample a fraction and compute it to obtain a Pandas DataFrame.
-- Use appropriate methods for data preprocessing.
-"""
+**General Guidelines:**
+- **Avoid unnecessary complexity**.
+- **Ensure all variables and functions used are defined within the code**.
+- **Do not include any explanations, comments, or extra text outside of the code**.
 
-        matplotlib_instructions = f"""{general_instructions}
-DO NOT include `plt.show()`. The `plot` method must return a matplotlib object (`plt`). Think step by step.
+**Output:**
+- The `plot(data)` function should return the visualization object (e.g., `fig`, `chart`, `img`).
 """
 
         if library == "matplotlib":
@@ -135,36 +136,41 @@ chart = plot(data)  # Data is already loaded. No additional code beyond this lin
 """
         elif library == "datashader":
             instructions = {
-                "role": "system",
-                "content": f"""{general_instructions}
-Fill in the `<imports>` section with necessary imports.
+        "role": "system",
+        "content": f"""{general_instructions}
 
-Fill in the `<stub>` section with code that:
-- If necessary, sample the data if it's too large.
-- Preprocess the data using methods compatible with Dask DataFrames.
-- Create the plot using Datashader functions.
-- Return the Datashader image (`img`) for rendering.
+**Specific Instructions for Datashader:**
 
-Ensure that:
-- The code is complete and executable without missing parts.
-- The `plot` function returns the Datashader image (`img`).
+- **Use only basic, well-documented functions from Datashader**.
+- **Avoid using any functions or methods unless you are certain they exist in Datashader's API**.
+- In the `<stub>` section, write code to:
+  - Handle data conversion if necessary (e.g., Dask to Pandas).
+  - Create the plot using basic Datashader functions like `Canvas`, `aggregate`, and `shade`.
 
-Do not include any explanations or extraneous text outside of the code.
+**Ensure that:**
+
+- The code is **simple**, **complete**, and **executable**.
+- All variables and functions used are defined within the code.
+- The `plot(data)` function returns the Datashader image (`img`).
+
+**Do Not Include:**
+
+- Any explanations, comments, or extraneous text.
+- Any code to load the data (it's already loaded in `data`).
 """
-            }
+    }
             template = f"""
-import datashader as ds
-import datashader.transfer_functions as tf
-import pandas as pd
-import dask.dataframe as dd
-<imports>
-def plot(data):
-    # Data preprocessing
-    <stub>
-    return img
+                import datashader as ds
+                import datashader.transfer_functions as tf
+                import pandas as pd
+                <imports>
+                def plot(data):
+                    # Data preprocessing
+                    <stub>
+                    return img
 
-chart = plot(data)  # Data is already loaded. No additional code beyond this line.
-"""
+                chart = plot(data)  # Data is already loaded. No additional code beyond this line.
+        """
         else:
             raise ValueError(
                 "Unsupported library. Choose from 'matplotlib', 'seaborn', 'plotly', 'ggplot', 'altair', and 'datashader'."

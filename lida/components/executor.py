@@ -19,53 +19,34 @@ import ast
 def preprocess_code(code: str) -> str:
     """Preprocess code to remove any preamble and explanation text"""
 
-    #code = code.replace("<imports>", "")
-    #code = code.replace("<stub>", "")
-    #code = code.replace("<transforms>", "")
-     # Basic clean-up of placeholder tags
-    # Remove code fences and any language identifiers after the backticks
-    code = re.sub(
-        r'```(?:\s*\w+)?\s*\n([\s\S]*?)\n```',
-        lambda m: m.group(1),
-        code,
-        flags=re.MULTILINE
-    )
+    code = code.replace("<imports>", "")
+    code = code.replace("<stub>", "")
+    code = code.replace("<transforms>", "")
 
-    code = code.strip()
+    # remove all text after chart = plot(data)
+    if "chart = plot(data)" in code:
+        # print(code)
+        index = code.find("chart = plot(data)")
+        if index != -1:
+            code = code[: index + len("chart = plot(data)")]
 
-    # Remove any leading language identifiers (e.g., 'python') at the start of the code
-    code = re.sub(r'^\s*(python|java|javascript|cpp|c)\s*\n', '', code, flags=re.IGNORECASE)
+    if "```" in code:
+        pattern = r"```(?:\w+\n)?([\s\S]+?)```"
+        matches = re.findall(pattern, code)
+        if matches:
+            code = matches[0]
+        # code = code.replace("```", "")
+        # return code
 
-    # Replace placeholders with empty strings if they're not filled
-    if "<imports>" in code:
-        code = code.replace("<imports>", "")
+    if "import" in code:
+        # return only text after the first import statement
+        index = code.find("import")
+        if index != -1:
+            code = code[index:]
 
-    if "<stub>" in code:
-        code = code.replace("<stub>", "")
-
-    if "<transforms>" in code:
-        code = code.replace("<transforms>", "")
-
-    # Ensure code does not contain undefined placeholders
-    placeholders = re.findall(r'<[^>]*>', code)
-    for placeholder in placeholders:
-        code = code.replace(placeholder, '')
-
-    # Remove any residual code that might cause errors
-    if 'preprocess_data' in code:
-        code = code.replace('preprocess_data', '')
-
-    # Validate syntax
-    try:
-        ast.parse(code)
-    except SyntaxError as e:
-        print("Syntax error in generated code:", e)
-        return None  # Return None to skip invalid code
-
-    # Ensure necessary parts are included
+    code = code.replace("```", "")
     if "chart = plot(data)" not in code:
-        code += "\nchart = plot(data)"
-
+        code = code + "\nchart = plot(data)"
     return code
 
 
@@ -239,13 +220,14 @@ class ChartExecutor:
 
                 try:
                     # Prepare data for execution
-                    # Ensure data is in the format expected by the generated code
                     if isinstance(data, dd.DataFrame):
                         data_for_execution = data  # Datashader can work with Dask DataFrames
                     else:
-                        data_for_execution = data  # Pandas DataFrame
+                        data_for_execution = data
 
+                    # Prepare the execution environment
                     ex_globals = {
+                        '__builtins__': __builtins__,
                         'data': data_for_execution,
                         'ds': ds,
                         'tf': tf,
@@ -253,22 +235,21 @@ class ChartExecutor:
                         'pd': pd,
                         'dd': dd,
                     }
-                    ex_locals = {}
 
                     # Execute the generated code
-                    exec(code, ex_globals, ex_locals)
-                    img = ex_locals.get("chart") or ex_globals.get("chart") or ex_locals.get("img") or ex_globals.get("img")
+                    exec(code, ex_globals)
+                    img = ex_globals.get("chart")
 
                     if img is None:
-                        raise ValueError("The generated code did not produce a 'chart' object.")
+                        raise ValueError("No chart object was created")
 
-                    # Convert the Datashader image to base64
+                    # Convert Datashader image to PNG bytes
                     buf = io.BytesIO()
-                    img.to_pil().save(buf, format="PNG")
+                    img.to_pil().save(buf, format='PNG')
                     buf.seek(0)
-                    plot_data = base64.b64encode(buf.read()).decode('utf-8')
+                    plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
 
-                    # Collect the result
+                    # Return the result
                     charts.append(
                         ChartExecutorResponse(
                             spec=None,
@@ -278,6 +259,7 @@ class ChartExecutor:
                             library=library,
                         )
                     )
+
                 except Exception as exception_error:
                     print("Error in Datashader plot generation:", exception_error)
                     if return_error:

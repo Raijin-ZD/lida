@@ -23,45 +23,48 @@ def preprocess_code(code: str) -> str:
     #code = code.replace("<stub>", "")
     #code = code.replace("<transforms>", "")
      # Basic clean-up of placeholder tags
-    code = re.sub(r'```[\s\S]*?```', lambda m: m.group(0).strip('```').strip(),code)
+    # Remove code fences and any language identifiers after the backticks
+    code = re.sub(
+        r'```(?:\s*\w+)?\s*\n([\s\S]*?)\n```',
+        lambda m: m.group(1),
+        code,
+        flags=re.MULTILINE
+    )
+
     code = code.strip()
 
-    code = code.replace("<imports>", "").replace("<stub>", "").replace("<transforms>", "")
+    # Remove any leading language identifiers (e.g., 'python') at the start of the code
+    code = re.sub(r'^\s*(python|java|javascript|cpp|c)\s*\n', '', code, flags=re.IGNORECASE)
 
-    # Check if the code is empty or invalid type
-    if not code or not isinstance(code, str):
-        print("Error: Generated code is empty or invalid.")
-        return None
+    # Replace placeholders with empty strings if they're not filled
+    if "<imports>" in code:
+        code = code.replace("<imports>", "")
 
+    if "<stub>" in code:
+        code = code.replace("<stub>", "")
 
-    # Syntax validation to catch issues like unclosed brackets or missing colons
+    if "<transforms>" in code:
+        code = code.replace("<transforms>", "")
+
+    # Ensure code does not contain undefined placeholders
+    placeholders = re.findall(r'<[^>]*>', code)
+    for placeholder in placeholders:
+        code = code.replace(placeholder, '')
+
+    # Remove any residual code that might cause errors
+    if 'preprocess_data' in code:
+        code = code.replace('preprocess_data', '')
+
+    # Validate syntax
     try:
         ast.parse(code)
     except SyntaxError as e:
         print("Syntax error in generated code:", e)
         return None  # Return None to skip invalid code
 
-    # Remove extraneous Markdown-style formatting (e.g., triple backticks)
-    if "```" in code:
-        pattern = r"```(?:\w+\n)?([\s\S]+?)```"
-        matches = re.findall(pattern, code)
-        if matches:
-            code = matches[0]
-
-    # Ensure that "chart = plot(data)" is in the final version of the code
-    # Only keep content up to "chart = plot(data)" if it exists
-    if "chart = plot(data)" in code:
-        index = code.find("chart = plot(data)")
-        code = code[: index + len("chart = plot(data)")]
-
-    # If "chart = plot(data)" is not yet included, append it
+    # Ensure necessary parts are included
     if "chart = plot(data)" not in code:
         code += "\nchart = plot(data)"
-
-    # Final check for the 'import' statement presence and ensure clean imports
-    if "import" in code:
-        index = code.find("import")
-        code = code[index:]
 
     return code
 
@@ -228,64 +231,70 @@ class ChartExecutor:
 
         # Handle Datashader separately
         elif library == "datashader":
-                charts = []
-                for code in code_specs:
-                    code = preprocess_code(code)
-                    if not code:
-                        continue  # Skip invalid code
+            charts = []
+            for code in code_specs:
+                code = preprocess_code(code)
+                if not code:
+                    continue  # Skip invalid code
 
-                    try:
-                        # Prepare data for execution
-                        ex_globals = {
-                            'data': data,  # Keep as is; Datashader can handle Dask DataFrames
-                            'ds': ds,
-                            'tf': tf,
-                            'np': np,
-                            'pd': pd,
-                            'dd': dd,
-                        }
-                        ex_locals = {}
+                try:
+                    # Prepare data for execution
+                    # Ensure data is in the format expected by the generated code
+                    if isinstance(data, dd.DataFrame):
+                        data_for_execution = data  # Datashader can work with Dask DataFrames
+                    else:
+                        data_for_execution = data  # Pandas DataFrame
 
-                        # Execute the generated code
-                        exec(code, ex_globals, ex_locals)
-                        img = ex_locals.get("chart") or ex_globals.get("chart")
+                    ex_globals = {
+                        'data': data_for_execution,
+                        'ds': ds,
+                        'tf': tf,
+                        'np': np,
+                        'pd': pd,
+                        'dd': dd,
+                    }
+                    ex_locals = {}
 
-                        if img is None:
-                            raise ValueError("The generated code did not produce a 'chart' object.")
+                    # Execute the generated code
+                    exec(code, ex_globals, ex_locals)
+                    img = ex_locals.get("chart") or ex_globals.get("chart") or ex_locals.get("img") or ex_globals.get("img")
 
-                        # Convert the Datashader image to base64
-                        buf = io.BytesIO()
-                        img.to_pil().save(buf, format="PNG")
-                        buf.seek(0)
-                        plot_data = base64.b64encode(buf.read()).decode('utf-8')
+                    if img is None:
+                        raise ValueError("The generated code did not produce a 'chart' object.")
 
-                        # Collect the result
+                    # Convert the Datashader image to base64
+                    buf = io.BytesIO()
+                    img.to_pil().save(buf, format="PNG")
+                    buf.seek(0)
+                    plot_data = base64.b64encode(buf.read()).decode('utf-8')
+
+                    # Collect the result
+                    charts.append(
+                        ChartExecutorResponse(
+                            spec=None,
+                            status=True,
+                            raster=plot_data,
+                            code=code,
+                            library=library,
+                        )
+                    )
+                except Exception as exception_error:
+                    print("Error in Datashader plot generation:", exception_error)
+                    if return_error:
                         charts.append(
                             ChartExecutorResponse(
                                 spec=None,
-                                status=True,
-                                raster=plot_data,
+                                status=False,
+                                raster=None,
                                 code=code,
                                 library=library,
+                                error={
+                                    "message": str(exception_error),
+                                    "traceback": traceback.format_exc(),
+                                },
                             )
                         )
-                    except Exception as exception_error:
-                        print("Error in Datashader plot generation:", exception_error)
-                        if return_error:
-                            charts.append(
-                                ChartExecutorResponse(
-                                    spec=None,
-                                    status=False,
-                                    raster=None,
-                                    code=code,
-                                    library=library,
-                                    error={
-                                        "message": str(exception_error),
-                                        "traceback": traceback.format_exc(),
-                                    },
-                                )
-                            )
-                return charts
+            return charts
 
         else:
             raise Exception(

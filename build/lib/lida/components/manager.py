@@ -24,6 +24,8 @@ import lida.web as lida
 
 logger = logging.getLogger("lida")
 
+print("manager.py is being imported.") # to see if its updated
+
 
 class Manager(object):
     def __init__(self, text_gen: TextGenerator = None) -> None:
@@ -48,6 +50,7 @@ class Manager(object):
         self.data = None
         self.infographer = None
         self.persona = PersonaExplorer()
+    
 
     def check_textgen(self, config: TextGenerationConfig):
         """
@@ -224,8 +227,8 @@ class Manager(object):
             goal = Goal(**goal)
         if isinstance(goal, str):
             goal = Goal(question=goal, visualization=goal, rationale="")
-        if isinstance(self.data, dd.DataFrame):
-            library = "datashader"
+        #if isinstance(self.data, dd.DataFrame):
+         #   library = "datashader"
         self.check_textgen(config=textgen_config)
         code_specs = self.vizgen.generate(
             summary=summary, goal=goal, textgen_config=textgen_config, text_gen=self.text_gen,

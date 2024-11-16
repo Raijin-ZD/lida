@@ -17,7 +17,6 @@ import dask.dataframe as dd
 
 logger = logging.getLogger("lida")
 
-
 def get_dirs(path: str) -> List[str]:
     return next(os.walk(path))[1]
 
@@ -74,7 +73,7 @@ def read_dataframe(file_location: str, encoding: str = 'utf-8') -> Union[pd.Data
 
     # Decide on loading method based on file size
     try:
-        if file_size_mb > 400:
+        if file_size_mb > 1:
             # For files over 400MB, use Dask for distributed loading
             if file_extension in ['csv', 'tsv']:
                 print("Loading data as a Dask DataFrame.")
