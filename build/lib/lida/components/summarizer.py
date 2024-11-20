@@ -32,83 +32,86 @@ class Summarizer():
             return value
 
     def get_column_properties(self, df: Union[pd.DataFrame, dd.DataFrame], n_samples: int = 3) -> list:
-        """Get properties of each column in a pandas or Dask DataFrame"""
-
+        """Get properties of each column in a pandas or Dask DataFrame with smart sampling"""
+        
+        # Define sampling thresholds (in bytes)
+        LARGE_DATA_THRESHOLD = 50 * 1024 * 1024  # 100MB
+        MAX_SAMPLE_SIZE = 20000  # Maximum rows to sample
+        
+        if isinstance(df, dd.DataFrame):
+            total_rows = len(df)
+            
+            # Calculate sample size based on data size
+            if total_rows > MAX_SAMPLE_SIZE:
+                sample_fraction = MAX_SAMPLE_SIZE / total_rows
+                print(f"Large Dask DataFrame detected. Sampling {sample_fraction:.1%} of data")
+                # Use efficient Dask sampling
+                df = df.sample(n=MAX_SAMPLE_SIZE).compute()
+            else:
+                df = df.compute()
+        
+        elif isinstance(df, pd.DataFrame):
+            memory_usage = df.memory_usage(deep=True).sum()
+            
+            if memory_usage > LARGE_DATA_THRESHOLD:
+                # For large Pandas DataFrames, sample efficiently
+                sample_size = min(MAX_SAMPLE_SIZE, len(df))
+                print(f"Large DataFrame detected. Sampling {sample_size} rows")
+                df = df.sample(n=sample_size)
+        
+        # Process the sampled DataFrame
         properties_list = []
         for column in df.columns:
             dtype = df[column].dtype
             properties = {}
-
+            
+            # Optimize numeric calculations
             if pd.api.types.is_numeric_dtype(dtype):
-                properties["dtype"] = "number"
-                if isinstance(df, dd.DataFrame):
-                    # Use Dask methods with .compute()
-                    properties["std"] = self.check_type(dtype, df[column].std().compute())
-                    properties["min"] = self.check_type(dtype, df[column].min().compute())
-                    properties["max"] = self.check_type(dtype, df[column].max().compute())
-                else:
-                    properties["std"] = self.check_type(dtype, df[column].std())
-                    properties["min"] = self.check_type(dtype, df[column].min())
-                    properties["max"] = self.check_type(dtype, df[column].max())
-
-            elif pd.api.types.is_bool_dtype(dtype):
-                properties["dtype"] = "boolean"
-
-            elif pd.api.types.is_datetime64_any_dtype(dtype):
-                properties["dtype"] = "date"
-                if isinstance(df, dd.DataFrame):
-                    properties["min"] = df[column].min().compute()
-                    properties["max"] = df[column].max().compute()
-                else:
+                # Use efficient describe() method for numeric columns
+                stats = df[column].describe()
+                properties.update({
+                    "dtype": "number",
+                    "std": self.check_type(dtype, stats['std']),
+                    "min": self.check_type(dtype, stats['min']),
+                    "max": self.check_type(dtype, stats['max'])
+                })
+            else:
+                # Existing dtype handling code...
+                if pd.api.types.is_bool_dtype(dtype):
+                    properties["dtype"] = "boolean"
+                elif pd.api.types.is_datetime64_any_dtype(dtype):
+                    properties["dtype"] = "date"
                     properties["min"] = df[column].min()
                     properties["max"] = df[column].max()
-
-            elif pd.api.types.is_categorical_dtype(dtype):
-                properties["dtype"] = "category"
-
-            else:
-                # Attempt to infer if the column is date
-                try:
-                    if isinstance(df, dd.DataFrame):
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            sample_values = df[column].dropna()
-                            pd.to_datetime(sample_values, errors='raise')
+                elif pd.api.types.is_categorical_dtype(dtype):
+                    properties["dtype"] = "category"
+                else:
+                    # Optimize string/date inference
+                    sample_for_type = df[column].dropna().head(1000)
+                    try:
+                        pd.to_datetime(sample_for_type, errors='raise')
                         properties["dtype"] = "date"
-                    else:
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            pd.to_datetime(df[column], errors='raise')
-                        properties["dtype"] = "date"
-                except (ValueError, TypeError):
-                    nunique_ratio = (df[column].nunique().compute() / df[column].count().compute()) if isinstance(df, dd.DataFrame) else df[column].nunique() / df[column].count()
-                    if nunique_ratio < 0.5:
-                        properties["dtype"] = "category"
-                    else:
-                        properties["dtype"] = "string"
+                    except (ValueError, TypeError):
+                        nunique_ratio = df[column].nunique() / df[column].count()
+                        properties["dtype"] = "category" if nunique_ratio < 0.5 else "string"
 
-            # Sampling non-null values for 'samples' property
-            if isinstance(df, dd.DataFrame):
-                # Use .head() to get a small sample without triggering full computation
-                sample_size = min(n_samples * 10, 1000)
-                non_null_values = df[column].dropna()
-            else:
-                non_null_values = df[column].dropna()
-
-            # Get unique values from the sample
-            unique_values = non_null_values.unique()
-            n_unique = df[column].nunique_approx().compute() if isinstance(df, dd.DataFrame) else df[column].nunique()
-
-            n_samples_actual = min(n_samples, len(unique_values))
+            # Efficient sampling for examples
+            non_null_values = df[column].dropna()
+            unique_values = non_null_values.unique()[:100]  # Limit unique values check
+            n_unique = len(unique_values)
+            
+            n_samples_actual = min(n_samples, n_unique)
             if n_samples_actual > 0:
-                samples = pd.Series(unique_values).sample(n=n_samples_actual, random_state=42).tolist()
+                samples = unique_values[:n_samples_actual].tolist()
             else:
                 samples = []
 
-            properties["samples"] = samples
-            properties["num_unique_values"] = n_unique
-            properties["semantic_type"] = ""
-            properties["description"] = ""
+            properties.update({
+                "samples": samples,
+                "num_unique_values": n_unique,
+                "semantic_type": "",
+                "description": ""
+            })
 
             properties_list.append({"column": column, "properties": properties})
 
