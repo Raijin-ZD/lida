@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
 from lida.datamodel import Goal
-
+print("Generating visualization code scaffold...")
 class ChartScaffold(object):
     """Return code scaffold for charts in multiple visualization libraries"""
 
@@ -34,6 +34,17 @@ Given the dataset summary and the visualization goal, the `plot(data)` function 
 - The `plot(data)` function should return the visualization object (e.g., `fig`, `chart`, `img`).
 """
 
+        matplotlib_instructions = f"""
+{general_instructions}
+
+**Additional Matplotlib/Seaborn Instructions:**
+1. Use only well-documented matplotlib/seaborn functions
+2. Set appropriate figure size using plt.figure() when needed
+3. Add proper labels and titles
+4. Use color palettes appropriately
+5. Handle axis formatting and scaling as needed
+"""
+
         if library == "matplotlib":
             instructions = {
                 "role": "assistant",
@@ -57,7 +68,7 @@ chart = plot(data)  # Data is already loaded. No additional code beyond this lin
         elif library == "seaborn":
             instructions = {
                 "role": "assistant",
-                "content": f"{matplotlib_instructions} Use Basemap for charts that require a map."
+                "content": f"{matplotlib_instructions} Use appropriate seaborn specific functions when possible."
             }
             template = f"""
 import seaborn as sns
@@ -144,7 +155,6 @@ chart = plot(data)  # Data is already loaded. No additional code beyond this lin
 - **Use only basic, well-documented functions from Datashader**.
 - **Avoid using any functions or methods unless you are certain they exist in Datashader's API**.
 - In the `<stub>` section, write code to:
-  - Handle data conversion if necessary (e.g., Dask to Pandas).
   - Create the plot using basic Datashader functions like `Canvas`, `aggregate`, and `shade`.
 
 **Ensure that:**
@@ -163,6 +173,7 @@ chart = plot(data)  # Data is already loaded. No additional code beyond this lin
                 import datashader as ds
                 import datashader.transfer_functions as tf
                 import pandas as pd
+                from colorcet import fire  
                 <imports>
                 def plot(data):
                     # Data preprocessing

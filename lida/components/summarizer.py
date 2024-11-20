@@ -17,7 +17,8 @@ You must return an updated JSON dictionary without any preamble or explanation.
 """
 
 logger = logging.getLogger("lida")
-print("Summarizer loaded")
+print("Summarizer loadedfffftt")
+
 class Summarizer():
     def __init__(self) -> None:
         self.summary = None
@@ -32,83 +33,52 @@ class Summarizer():
             return value
 
     def get_column_properties(self, df: Union[pd.DataFrame, dd.DataFrame], n_samples: int = 3) -> list:
-        """Get properties of each column in a pandas or Dask DataFrame with smart sampling"""
-        
-        # Define sampling thresholds (in bytes)
-        LARGE_DATA_THRESHOLD = 100 * 1024 * 1024  # 100MB
-        MAX_SAMPLE_SIZE = 50000  # Maximum rows to sample
-        
+        """Get properties of each column with efficient sampling."""
+
         if isinstance(df, dd.DataFrame):
-            total_rows = len(df)
-            
-            # Calculate sample size based on data size
-            if total_rows > MAX_SAMPLE_SIZE:
-                sample_fraction = MAX_SAMPLE_SIZE / total_rows
-                print(f"Large Dask DataFrame detected. Sampling {sample_fraction:.1%} of data")
-                # Use efficient Dask sampling
-                df = df.sample(n=MAX_SAMPLE_SIZE).compute()
-            else:
-                df = df.compute()
-        
+            # Sample a fraction without computing the entire DataFrame
+            sample_fraction = 0.01  # Adjust as needed (e.g., 1% of data)
+            df_sample = df.sample(frac=sample_fraction, random_state=42).compute()
         elif isinstance(df, pd.DataFrame):
-            memory_usage = df.memory_usage(deep=True).sum()
-            
-            if memory_usage > LARGE_DATA_THRESHOLD:
-                # For large Pandas DataFrames, sample efficiently
-                sample_size = min(MAX_SAMPLE_SIZE, len(df))
-                print(f"Large DataFrame detected. Sampling {sample_size} rows")
-                df = df.sample(n=sample_size)
-        
-        # Process the sampled DataFrame
+            # Use the entire DataFrame without sampling
+            df_sample = df
+        else:
+            raise TypeError("df must be a pandas or dask DataFrame")
+
         properties_list = []
-        for column in df.columns:
-            dtype = df[column].dtype
+        for column in df_sample.columns:
+            dtype = df_sample[column].dtype
             properties = {}
-            
-            # Optimize numeric calculations
+
+            # Compute the number of unique values
+            nunique = df_sample[column].nunique()
+
+            # Process numeric columns
             if pd.api.types.is_numeric_dtype(dtype):
-                # Use efficient describe() method for numeric columns
-                stats = df[column].describe()
+                stats = df_sample[column].describe()
                 properties.update({
                     "dtype": "number",
-                    "std": self.check_type(dtype, stats['std']),
-                    "min": self.check_type(dtype, stats['min']),
-                    "max": self.check_type(dtype, stats['max'])
+                    "std": float(stats['std']),
+                    "min": float(stats['min']),
+                    "max": float(stats['max'])
                 })
+            # Process boolean columns
+            elif pd.api.types.is_bool_dtype(dtype):
+                properties["dtype"] = "boolean"
+            # Process datetime columns
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                properties["dtype"] = "date"
+                properties["min"] = df_sample[column].min()
+                properties["max"] = df_sample[column].max()
             else:
-                # Existing dtype handling code...
-                if pd.api.types.is_bool_dtype(dtype):
-                    properties["dtype"] = "boolean"
-                elif pd.api.types.is_datetime64_any_dtype(dtype):
-                    properties["dtype"] = "date"
-                    properties["min"] = df[column].min()
-                    properties["max"] = df[column].max()
-                elif pd.api.types.is_categorical_dtype(dtype):
-                    properties["dtype"] = "category"
-                else:
-                    # Optimize string/date inference
-                    sample_for_type = df[column].dropna().head(1000)
-                    try:
-                        pd.to_datetime(sample_for_type, errors='raise')
-                        properties["dtype"] = "date"
-                    except (ValueError, TypeError):
-                        nunique_ratio = df[column].nunique() / df[column].count()
-                        properties["dtype"] = "category" if nunique_ratio < 0.5 else "string"
+                # Determine if the column is categorical or string based on unique values
+                properties["dtype"] = "category" if nunique / len(df_sample) < 0.5 else "string"
 
-            # Efficient sampling for examples
-            non_null_values = df[column].dropna()
-            unique_values = non_null_values.unique()[:100]  # Limit unique values check
-            n_unique = len(unique_values)
-            
-            n_samples_actual = min(n_samples, n_unique)
-            if n_samples_actual > 0:
-                samples = unique_values[:n_samples_actual].tolist()
-            else:
-                samples = []
-
+            # Get sample values
+            samples = df_sample[column].dropna().unique()[:n_samples].tolist()
             properties.update({
                 "samples": samples,
-                "num_unique_values": n_unique,
+                "num_unique_values": int(nunique),
                 "semantic_type": "",
                 "description": ""
             })
@@ -156,8 +126,7 @@ class Summarizer():
             file_name = data.split("/")[-1]
             data = read_dataframe(data, encoding=encoding)
 
-        # No need to compute the entire Dask DataFrame
-        # Proceed to get column properties directly
+        # Proceed to get column properties
         data_properties = self.get_column_properties(data, n_samples)
 
         # Default single stage summary construction
