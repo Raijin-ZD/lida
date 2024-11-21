@@ -18,6 +18,9 @@ from ..components.goal import GoalExplorer
 from ..components.persona import PersonaExplorer
 from ..components.executor import ChartExecutor
 from ..components.viz import VizGenerator, VizEditor, VizExplainer, VizEvaluator, VizRepairer, VizRecommender
+from langchain.chat_models import ChatOpenAI
+from langchain.agents import load_tools
+from langchain.llms import Cohere
 
 import lida.web as lida
 
@@ -36,7 +39,7 @@ class Manager(object):
             text_gen (TextGenerator, optional): Text generator object. Defaults to None.
         """
 
-        self.text_gen = text_gen or llm()
+        self.text_gen = text_gen or llm(provider="cohere")  # Change default to cohere
 
         self.summarizer = Summarizer()
         self.goal = GoalExplorer()
@@ -216,31 +219,31 @@ class Manager(object):
         self,
         summary,
         goal,
-        textgen_config: TextGenerationConfig = TextGenerationConfig(),
+        textgen_config=None,
         library="seaborn",
-        return_error: bool = False,
+        return_error=False,
     ):
-      #  if len(self.data) > 100000:
-       #     library = "datashader"
-
+        """Use LangChain-based VizGenerator while keeping rest of pipeline"""
         if isinstance(goal, dict):
             goal = Goal(**goal)
         if isinstance(goal, str):
             goal = Goal(question=goal, visualization=goal, rationale="")
-        if isinstance(self.data, dd.DataFrame):
-            library = "datashader"
-        self.check_textgen(config=textgen_config)
+            
+        # Generate code using LangChain-based VizGenerator
         code_specs = self.vizgen.generate(
-            summary=summary, goal=goal, textgen_config=textgen_config, text_gen=self.text_gen,
-            library=library)  
-        charts = self.execute(
+            summary=summary,
+            goal=goal,
+            library=library
+        )
+        
+        # Execute generated code using existing executor
+        return self.execute(
             code_specs=code_specs,
             data=self.data,
             summary=summary,
             library=library,
             return_error=return_error,
         )
-        return charts
 
     def execute(
         self,
