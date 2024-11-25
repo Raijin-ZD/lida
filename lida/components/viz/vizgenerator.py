@@ -10,8 +10,8 @@ from lida.datamodel import Goal, Summary
 from langchain.llms import Cohere
 
 class VizGeneratorTool(BaseTool):
-    name = "visualization_generator"
-    description = "Generates visualization code based on data summary and goals"
+    name: str = "visualization_generator"
+    description: str = "Generates visualization code based on data summary and goals"
     
     def _run(self, data_summary: str, goal: str, library: str) -> str:
         # Tool implementation for generating visualization code
@@ -19,14 +19,12 @@ class VizGeneratorTool(BaseTool):
 
 class VizGenerator:
     def __init__(self):
-        # Use Cohere instead of ChatOpenAI
         self.llm = Cohere(
-            cohere_api_key="your-api-key",  
-            model="command-xlarge-nightly",  # or any other Cohere model
+            cohere_api_key="your-api-key",
+            model="command",
             temperature=0
         )
         
-        # Create visualization generation prompt
         self.viz_prompt = PromptTemplate(
             input_variables=["summary", "goal", "library"],
             template="""
@@ -42,12 +40,7 @@ class VizGenerator:
             """
         )
         
-        # Create LangChain tools
-        tools = [
-            VizGeneratorTool(),
-        ]
-        
-        # Initialize the agent
+        tools = [VizGeneratorTool()]
         self.agent = initialize_agent(
             tools,
             self.llm,
@@ -56,23 +49,16 @@ class VizGenerator:
         )
 
     def generate(self, summary, goal, library='seaborn', textgen_config=None, text_gen=None):
-        """Generate visualization code using LangChain agent"""
-        
-        # Convert dict to Summary object if needed
         if isinstance(summary, dict):
             summary = Summary(**summary)
-            
-        # Convert dict to Goal object if needed    
         if isinstance(goal, dict):
             goal = Goal(**goal)
-            
-        # Create chain for visualization generation
+        
         viz_chain = LLMChain(
             llm=self.llm,
             prompt=self.viz_prompt
         )
         
-        # Run the chain
         result = viz_chain.run(
             summary=str(summary),
             goal=goal.question,

@@ -1,44 +1,45 @@
-# Visualization manager class that handles the visualization of the data with the following methods
-
-# summarize data given a df
-# generate goals given a summary
-# generate generate visualization specifications given a summary and a goal
-# execute the specification given some data
+# manager.py
 
 import os
 from typing import List, Union
 import logging
-import dask.dataframe as dd
 import pandas as pd
 from llmx import llm, TextGenerator
 from lida.datamodel import Goal, Summary, TextGenerationConfig, Persona
 from lida.utils import read_dataframe
-from ..components.summarizer import Summarizer
-from ..components.goal import GoalExplorer
-from ..components.persona import PersonaExplorer
-from ..components.executor import ChartExecutor
-from ..components.viz import VizGenerator, VizEditor, VizExplainer, VizEvaluator, VizRepairer, VizRecommender
+from .summarizer import Summarizer  # Ensure correct import
+from .goal import GoalExplorer
+from .persona import PersonaExplorer
+from .executor import ChartExecutor
+from .viz import VizGenerator, VizEditor, VizExplainer, VizEvaluator, VizRepairer, VizRecommender
+from langchain import LLMChain, PromptTemplate
+from langchain.chat_models import ChatOpenAI
+from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
+from langchain.memory import ConversationBufferMemory
 
 import lida.web as lida
 
-
 logger = logging.getLogger("lida")
 
-print("manager.py is being imported.") # to see if its updated
+print("manager.py is being imported.")  # to see if it's updated
 
+# For summarization
+summarization_prompt = PromptTemplate(
+    input_variables=["data_description"],
+    template="""
+    Summarize the following dataset:
+    {data_description}
+    """
+)
 
 class Manager(object):
-    def __init__(self, text_gen: TextGenerator = None) -> None:
-        """
-        Initialize the Manager object.
+    def __init__(self, text_gen: TextGenerator = None, **kwargs) -> None:
+        if text_gen is None:
+            self.text_gen = llm(**kwargs)
+        else:
+            self.text_gen = text_gen
 
-        Args:
-            text_gen (TextGenerator, optional): Text generator object. Defaults to None.
-        """
-
-        self.text_gen = text_gen or llm()
-
-        self.summarizer = Summarizer()
+        self.summarizer = Summarizer(self.text_gen)
         self.goal = GoalExplorer()
         self.vizgen = VizGenerator()
         self.vizeditor = VizEditor()
@@ -50,7 +51,10 @@ class Manager(object):
         self.data = None
         self.infographer = None
         self.persona = PersonaExplorer()
-    
+        self.summarization_chain = LLMChain(
+            llm=self.text_gen,
+            prompt=summarization_prompt
+        )
 
     def check_textgen(self, config: TextGenerationConfig):
         """
@@ -65,99 +69,14 @@ class Manager(object):
             return
 
         if self.text_gen.provider != config.provider:
-
             logger.info(
                 "Switching Text Generator Provider from %s to %s",
                 self.text_gen.provider,
                 config.provider)
             self.text_gen = llm(provider=config.provider)
 
-    def summarize(
-        self,
-        data: Union[pd.DataFrame, str],
-        file_name="",
-        n_samples: int = 3,
-        summary_method: str = "default",
-        textgen_config: TextGenerationConfig = TextGenerationConfig(n=1, temperature=0),
-    ) -> Summary:
-        """
-        Summarize data given a DataFrame or file path.
-
-        Args:
-            data (Union[pd.DataFrame, str]): Input data, either a DataFrame or file path.
-            file_name (str, optional): Name of the file if data is loaded from a file path. Defaults to "".
-            n_samples (int, optional): Number of summary samples to generate. Defaults to 3.
-            summary_method (str, optional): Summary method to use. Defaults to "default".
-            textgen_config (TextGenerationConfig, optional): Text generation configuration. Defaults to TextGenerationConfig(n=1, temperature=0).
-
-        Returns:
-            Summary: Summary object containing the generated summary.
-
-        Example of Summary:
-
-            {'name': 'cars.csv',
-            'file_name': 'cars.csv',
-            'dataset_description': '',
-            'fields': [{'column': 'Name',
-            'properties': {'dtype': 'string',
-                'samples': ['Nissan Altima S 4dr',
-                'Mercury Marauder 4dr',
-                'Toyota Prius 4dr (gas/electric)'],
-                'num_unique_values': 385,
-                'semantic_type': '',
-                'description': ''}},
-            {'column': 'Type',
-            'properties': {'dtype': 'category',
-                'samples': ['SUV', 'Minivan', 'Sports Car'],
-                'num_unique_values': 5,
-                'semantic_type': '',
-                'description': ''}},
-            {'column': 'AWD',
-            'properties': {'dtype': 'number',
-                'std': 0,
-                'min': 0,
-                'max': 1,
-                'samples': [1, 0],
-                'num_unique_values': 2,
-                'semantic_type': '',
-                'description': ''}},
-            }
-
-        """
-        self.check_textgen(config=textgen_config)
-        
-        #if isinstance(data, pd.DataFrame) and len(data) > 100000:
-        #     data = dd.from_pandas(data, npartitions=10)
-        #if isinstance(data, str):
-        #    file_name = data.split("/")[-1]
-       #     data = read_dataframe(data)
-       #     data = dd.from_pandas(data, npartitions=10)  # Convert to Dask dataframe for better scalability
-        
-        if isinstance(data, str):
-            file_name = data.split("/")[-1]
-            file_size = os.path.getsize(data)
-            if file_size < 400 * 1024 * 1024:  # Less than 400MB
-                data = pd.read_csv(data)
-            else:
-                data = dd.read_csv(data)
-        elif isinstance(data, pd.DataFrame):
-            data_size = data.memory_usage(deep=True).sum()
-            if data_size > 400 * 1024 * 1024:
-                data = dd.from_pandas(data, npartitions=10)
-        elif isinstance(data, dd.DataFrame):
-            pass  # Data is already a Dask DataFrame
-        else:
-            raise ValueError("Data must be a pandas or dask DataFrame, or a file path.")
-
-        self.data = data
-        return self.summarizer.summarize(
-            data=self.data,
-            text_gen=self.text_gen,
-            file_name=file_name,
-            n_samples=n_samples,
-            summary_method=summary_method,
-            textgen_config=textgen_config,
-        )
+    def summarize(self, data: Union[pd.DataFrame, str], **kwargs) -> str:
+        return self.summarizer.summarize(data, **kwargs)
 
     def goals(
         self,
@@ -216,31 +135,30 @@ class Manager(object):
         self,
         summary,
         goal,
-        textgen_config: TextGenerationConfig = TextGenerationConfig(),
+        textgen_config=None,
         library="seaborn",
-        return_error: bool = False,
+        return_error=False,
     ):
-      #  if len(self.data) > 100000:
-       #     library = "datashader"
-
         if isinstance(goal, dict):
             goal = Goal(**goal)
         if isinstance(goal, str):
             goal = Goal(question=goal, visualization=goal, rationale="")
-        #if isinstance(self.data, dd.DataFrame):
-         #   library = "datashader"
-        self.check_textgen(config=textgen_config)
+
         code_specs = self.vizgen.generate(
-            summary=summary, goal=goal, textgen_config=textgen_config, text_gen=self.text_gen,
-            library=library)  
-        charts = self.execute(
+            summary=summary,
+            goal=goal,
+            library=library,
+            textgen_config=textgen_config,
+            text_gen=self.text_gen
+        )
+        
+        return self.execute(
             code_specs=code_specs,
             data=self.data,
             summary=summary,
             library=library,
             return_error=return_error,
         )
-        return charts
 
     def execute(
         self,
@@ -458,4 +376,5 @@ class Manager(object):
             logger.info("Initializing Infographer")
             self.infographer = Infographer()
         return self.infographer.generate(
-            visualization=visualization, n=n, style_prompt=style_prompt, return_pil=return_pil)
+            visualization=visualization, n=n, style_prompt=style_prompt, return_pil=return_pil
+        )
