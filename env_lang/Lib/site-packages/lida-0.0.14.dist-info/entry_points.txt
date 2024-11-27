@@ -1,0 +1,2 @@
+[console_scripts]
+lida = lida.cli:run

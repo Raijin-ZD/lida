@@ -1,66 +1,139 @@
 import json
 import logging
+from typing import List, Union
+import pandas as pd
 from lida.utils import clean_code_snippet
-from llmx import TextGenerator
 from lida.datamodel import Goal, TextGenerationConfig, Persona
+from langchain.llms import Cohere
+from langchain import LLMChain, PromptTemplate
+import os
+from dotenv import load_dotenv
 
+# Load environment variables from .env file if present
+load_dotenv()
 
+logger = logging.getLogger("lida")
+
+# Define SYSTEM_INSTRUCTIONS and FORMAT_INSTRUCTIONS as class attributes or constants
 SYSTEM_INSTRUCTIONS = """
-You are a an experienced data analyst who can generate a given number of insightful GOALS about data, when given a summary of the data, and a specified persona. The VISUALIZATIONS YOU RECOMMEND MUST FOLLOW VISUALIZATION BEST PRACTICES (e.g., must use bar charts instead of pie charts for comparing quantities) AND BE MEANINGFUL (e.g., plot longitude and latitude on maps where appropriate). They must also be relevant to the specified persona. Each goal must include a question, a visualization (THE VISUALIZATION MUST REFERENCE THE EXACT COLUMN FIELDS FROM THE SUMMARY), and a rationale (JUSTIFICATION FOR WHICH dataset FIELDS ARE USED and what we will learn from the visualization). Each goal MUST mention the exact fields from the dataset summary above
+You are an experienced data analyst who can generate insightful GOALS about data, including visualization suggestions and rationales. The visualizations you recommend must follow best practices (e.g., use bar charts instead of pie charts for comparing quantities) and be meaningful (e.g., plot longitude and latitude on maps where appropriate). Each goal must include a question, a visualization (referencing exact column fields from the summary), and a rationale (justification for dataset fields used and what will be learned from the visualization). Each goal must mention the exact fields from the dataset summary above.
 Ensure that goals involving visualization of large datasets consider using data aggregation techniques such as histograms, density plots, or other summary-based visualizations to avoid overplotting.
 """
 
 FORMAT_INSTRUCTIONS = """
-THE OUTPUT MUST BE A CODE SNIPPET OF A VALID LIST OF JSON OBJECTS. IT MUST USE THE FOLLOWING FORMAT:
+THE OUTPUT MUST BE A VALID JSON LIST OF OBJECTS USING THE FOLLOWING FORMAT:
 
-```[
-    { "index": 0,  "question": "What is the distribution of X", "visualization": "histogram of X", "rationale": "This tells about "} ..
-    ]
-```
+[
+    { 
+        "index": 0,  
+        "question": "What is the distribution of X?", 
+        "visualization": "Histogram of X", 
+        "rationale": "This visualization shows the distribution of X to understand its variability."
+    },
+    ...
+]
 THE OUTPUT SHOULD ONLY USE THE JSON FORMAT ABOVE.
 """
 
-logger = logging.getLogger("lida")
+class GoalExplorer:
+    """Generate goals with visualization suggestions and rationales based on a data summary."""
 
+    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None):
+        """
+        Initialize the GoalExplorer with specified model configuration.
 
-class GoalExplorer():
-    """Generate goals given a summary of data"""
+        Args:
+            model_type (str): Type of the model (e.g., 'cohere').
+            model_name (str): Name of the model to use.
+            api_key (str): API key for the model provider.
+        """
+        self.model_type = model_type
+        self.model_name = model_name
+        self.api_key = api_key or os.getenv('COHERE_API_KEY')
 
-    def __init__(self) -> None:
-        pass
+        if self.model_type.lower() == 'cohere':
+            if not self.api_key:
+                raise ValueError("Cohere API key must be provided either via parameter or 'COHERE_API_KEY' environment variable.")
+            self.llm = Cohere(
+                model=self.model_name,
+                cohere_api_key=self.api_key
+            )
+        else:
+            raise ValueError(f"Unsupported model_type: {self.model_type}")
 
-    def generate(self, summary: dict, textgen_config: TextGenerationConfig,
-                 text_gen: TextGenerator, n=5, persona: Persona = None) -> list[Goal]:
-        """Generate goals given a summary of data"""
+        # Define the prompt template with input variables: n, summary, persona
+        self.prompt_template = PromptTemplate(
+            input_variables=["n", "summary", "persona_description"],
+            template=f"""
+{SYSTEM_INSTRUCTIONS}
 
-        user_prompt = f"""The number of GOALS to generate is {n}. The goals should be based on the data summary below, \n\n .
-        {summary} \n\n"""
+The number of GOALS to generate is {{n}}. The goals should be based on the data summary below:
 
+{{summary}}
+
+The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{{persona_description}}}}' persona, who is interested in complex, insightful goals about the data.
+
+{FORMAT_INSTRUCTIONS}
+"""
+        )
+
+        # Initialize the LLMChain
+        self.llm_chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
+
+    def generate(self, summary: dict, textgen_config: TextGenerationConfig, n: int =5, persona: Persona = None) -> List[Goal]:
+        """
+        Generate goals based on a summary of data.
+
+        Args:
+            summary (dict): Summary of the dataset.
+            textgen_config (TextGenerationConfig): Configuration for text generation (e.g., max tokens).
+            n (int, optional): Number of goals to generate. Defaults to 5.
+            persona (Persona, optional): Persona details. Defaults to None.
+
+        Returns:
+            List[Goal]: A list of generated goals with visualization suggestions and rationales.
+        """
         if not persona:
             persona = Persona(
-                persona="A highly skilled data analyst who can come up with complex, insightful goals about data",
-                rationale="")
+                persona="A highly skilled data analyst who can develop complex, insightful goals about data",
+                rationale=""
+            )
 
-        user_prompt += f"""\n The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{persona.persona} persona, who is insterested in complex, insightful goals about the data. \n"""
+        persona_description = persona.persona
 
-        messages = [
-            {"role": "system", "content": SYSTEM_INSTRUCTIONS},
-            {"role": "assistant",
-             "content":
-             f"{user_prompt}\n\n {FORMAT_INSTRUCTIONS} \n\n. The generated {n} goals are: \n "}]
+        # Prepare variables for the prompt
+        prompt_vars = {
+            "n": n,
+            "summary": json.dumps(summary, indent=4),
+            "persona_description": persona_description
+        }
 
-        result: list[Goal] = text_gen.generate(messages=messages, config=textgen_config)
+        logger.debug(f"Generating goals with variables: {prompt_vars}")
 
         try:
-            json_string = clean_code_snippet(result.text[0]["content"])
-            result = json.loads(json_string)
-            # cast each item in the list to a Goal object
-            if isinstance(result, dict):
-                result = [result]
-            result = [Goal(**x) for x in result]
-        except json.decoder.JSONDecodeError:
-            logger.info(f"Error decoding JSON: {result.text[0]['content']}")
-            print(f"Error decoding JSON: {result.text[0]['content']}")
+            # Generate the goals using LLMChain
+            response = self.llm_chain.run(prompt_vars)
+            logger.debug(f"Raw response from LLM: {response}")
+
+            # Clean and parse the JSON output
+            json_string = clean_code_snippet(response)
+            goals_data = json.loads(json_string)
+
+            # Ensure it's a list
+            if isinstance(goals_data, dict):
+                goals_data = [goals_data]
+
+            # Convert to list of Goal objects
+            goals = [Goal(**goal) for goal in goals_data]
+            return goals
+
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding failed: {e}")
+            logger.error(f"Response received: {response}")
             raise ValueError(
-                "The model did not return a valid JSON object while attempting generate goals. Consider using a larger model or a model with higher max token length.")
-        return result
+                "The model did not return a valid JSON object while attempting to generate goals. "
+                "Consider using a larger model or a model with higher max token length."
+            ) from e
+        except Exception as e:
+            logger.error(f"An error occurred during goal generation: {e}")
+            raise e

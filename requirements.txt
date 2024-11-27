@@ -1,1 +1,7 @@
 .
+langchain>=0.0.XXX
+langchain-community>=0.0.X
+cohere>=4.0.0
+pandas>=1.0.0
+dask>=2.0.0
+python-dotenv>=0.19.0
