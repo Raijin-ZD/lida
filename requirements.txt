@@ -1,7 +1,9 @@
 .
-langchain>=0.0.XXX
-langchain-community>=0.0.X
+langchain
+langchain-community
+llmx
 cohere>=4.0.0
 pandas>=1.0.0
-dask>=2.0.0
+dask>=2023.1.0
 python-dotenv>=0.19.0
+diskcache>=5.0.0

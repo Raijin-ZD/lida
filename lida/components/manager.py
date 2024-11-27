@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 from lida.datamodel import Goal, Summary, TextGenerationConfig, Persona
 from lida.utils import read_dataframe
-from .summarizer import Summarizer  # Ensure correct import
+from .summarizer import Summarizer  # Relative import
 from .goal import GoalExplorer
 from .persona import PersonaExplorer
 from .executor import ChartExecutor
@@ -16,7 +16,7 @@ import lida.web as lida
 
 logger = logging.getLogger("lida")
 
-print("manager.py is being importedggg.")  # to see if it's updated
+print("manager.py is being importedtry.")  # to see if it's updated
 
 class Manager:
     def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None, **kwargs):
@@ -35,36 +35,36 @@ class Manager:
         # Initialize GoalExplorer with provided configuration
         self.goal = GoalExplorer(model_type=model_type, model_name=model_name, api_key=api_key)
 
-        # Initialize other components as before
+        # Initialize PersonaExplorer with provided configuration
+        self.persona = PersonaExplorer(model_type=model_type, model_name=model_name, api_key=api_key)
+
+        # Initialize other components
         self.vizgen = VizGenerator()
         self.vizeditor = VizEditor()
-        self.executor = ChartExecutor()
         self.explainer = VizExplainer()
         self.evaluator = VizEvaluator()
         self.repairer = VizRepairer()
         self.recommender = VizRecommender()
-        self.persona = PersonaExplorer()
+        self.executor = ChartExecutor()
+
+        # Placeholder attributes
         self.data = None
         self.infographer = None
-        # Removed self.summarization_chain since Summarizer handles summarization
 
-    def check_textgen(self, config: TextGenerationConfig):
-        """
-        (Optional) Method is no longer necessary as TextGenerator is removed.
-        """
-        pass  # Removed logic related to self.text_gen
-
-    def summarize(self, data: Union[pd.DataFrame, str]) -> str:
+    def summarize(self, data: Union[pd.DataFrame, str], textgen_config: TextGenerationConfig = None) -> Summary:
         """
         Generate a summary for the provided data using Summarizer.
 
         Args:
             data (Union[pd.DataFrame, str]): The dataset to summarize.
+            textgen_config (TextGenerationConfig, optional): Configuration for text generation.
 
         Returns:
-            str: JSON-formatted summary.
+            Summary: JSON-formatted summary wrapped in a Summary dataclass.
         """
-        return self.summarizer.summarize(data)
+        summary_text = self.summarizer.summarize(data, textgen_config=textgen_config)
+        summary = Summary(content=summary_text)
+        return summary
 
     def goals(
         self,
@@ -85,13 +85,6 @@ class Manager:
         Returns:
             List[Goal]: A list of generated goals.
         """
-        # Removed references to self.text_gen
-        if isinstance(persona, dict):
-            persona = Persona(**persona)
-        if isinstance(persona, str):
-            persona = Persona(persona=persona, rationale="")
-
-        # Adjust GoalExplorer.generate to no longer require text_gen
         return self.goal.generate(
             summary=summary,
             textgen_config=textgen_config,
@@ -116,7 +109,6 @@ class Manager:
         Returns:
             List[Persona]: A list of generated personas.
         """
-        # Removed references to self.text_gen
         return self.persona.generate(
             summary=summary,
             textgen_config=textgen_config,

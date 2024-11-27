@@ -1,20 +1,15 @@
 import json
 import logging
 from typing import List, Union
-import pandas as pd
 from lida.utils import clean_code_snippet
 from lida.datamodel import Goal, TextGenerationConfig, Persona
-from langchain.llms import Cohere
 from langchain import LLMChain, PromptTemplate
-import os
+from .textgen_langchain import TextGeneratorLLM  # Use relative import
 from dotenv import load_dotenv
-
-# Load environment variables from .env file if present
-load_dotenv()
-
+from llmx import TextGenerator  # Import TextGenerator from llmx
+from llmx import llm  # Import llm function
 logger = logging.getLogger("lida")
-
-# Define SYSTEM_INSTRUCTIONS and FORMAT_INSTRUCTIONS as class attributes or constants
+print("Goal loadedffff")
 SYSTEM_INSTRUCTIONS = """
 You are an experienced data analyst who can generate insightful GOALS about data, including visualization suggestions and rationales. The visualizations you recommend must follow best practices (e.g., use bar charts instead of pie charts for comparing quantities) and be meaningful (e.g., plot longitude and latitude on maps where appropriate). Each goal must include a question, a visualization (referencing exact column fields from the summary), and a rationale (justification for dataset fields used and what will be learned from the visualization). Each goal must mention the exact fields from the dataset summary above.
 Ensure that goals involving visualization of large datasets consider using data aggregation techniques such as histograms, density plots, or other summary-based visualizations to avoid overplotting.
@@ -49,19 +44,15 @@ class GoalExplorer:
         """
         self.model_type = model_type
         self.model_name = model_name
-        self.api_key = api_key or os.getenv('COHERE_API_KEY')
+        self.api_key = api_key
 
-        if self.model_type.lower() == 'cohere':
-            if not self.api_key:
-                raise ValueError("Cohere API key must be provided either via parameter or 'COHERE_API_KEY' environment variable.")
-            self.llm = Cohere(
-                model=self.model_name,
-                cohere_api_key=self.api_key
-            )
-        else:
-            raise ValueError(f"Unsupported model_type: {self.model_type}")
+        # Initialize the TextGenerator with the specified provider
+        self.text_gen = self._initialize_text_generator()
 
-        # Define the prompt template with input variables: n, summary, persona
+        # Wrap the TextGenerator with TextGeneratorLLM for LangChain compatibility
+        self.llm = TextGeneratorLLM(text_gen=self.text_gen)
+
+        # Define the prompt template with input variables
         self.prompt_template = PromptTemplate(
             input_variables=["n", "summary", "persona_description"],
             template=f"""
@@ -80,13 +71,32 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
         # Initialize the LLMChain
         self.llm_chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
 
-    def generate(self, summary: dict, textgen_config: TextGenerationConfig, n: int =5, persona: Persona = None) -> List[Goal]:
+    def _initialize_text_generator(self):
+        """
+        Initialize the TextGenerator with the specified provider.
+
+        Returns:
+            TextGenerator: An instance of a concrete TextGenerator subclass.
+        """
+        kwargs = {
+            'provider': self.model_type,
+            'api_key': self.api_key,
+        }
+
+        if self.model_type.lower() == 'cohere':
+            kwargs['model'] = self.model_name  # Use 'model' for Cohere
+        else:
+            kwargs['model_name'] = self.model_name  # Use 'model_name' for other providers
+
+        return llm(**kwargs)
+
+    def generate(self, summary: dict, textgen_config: TextGenerationConfig, n: int = 5, persona: Persona = None) -> List[Goal]:
         """
         Generate goals based on a summary of data.
 
         Args:
             summary (dict): Summary of the dataset.
-            textgen_config (TextGenerationConfig): Configuration for text generation (e.g., max tokens).
+            textgen_config (TextGenerationConfig): Configuration for text generation.
             n (int, optional): Number of goals to generate. Defaults to 5.
             persona (Persona, optional): Persona details. Defaults to None.
 
@@ -109,6 +119,13 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
         }
 
         logger.debug(f"Generating goals with variables: {prompt_vars}")
+
+        # Update LLM parameters based on textgen_config
+        if textgen_config:
+            self.llm.temperature = textgen_config.temperature
+            self.llm.max_tokens = textgen_config.max_new_tokens
+            if textgen_config.stop:
+                self.llm.stop = textgen_config.stop
 
         try:
             # Generate the goals using LLMChain
