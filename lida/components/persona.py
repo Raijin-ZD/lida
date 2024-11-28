@@ -35,7 +35,7 @@ class PersonaExplorer:
         self.text_gen = self._initialize_text_generator()
 
         # Wrap the TextGenerator with TextGeneratorLLM for LangChain compatibility
-        self.llm = TextGeneratorLLM(text_gen=self.text_gen)
+        self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=system_prompt)
         
         # Define the prompt template
         self.prompt_template = PromptTemplate(
@@ -43,8 +43,8 @@ class PersonaExplorer:
             template=system_prompt + "\nThe number of PERSONAs to generate is {n}. Generate {n} personas in the right format given the data summary below:\n{summary}"
         )
 
-        # Initialize the LLMChain
-        self.llm_chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
+        # Update the persona chain initialization
+        self.llm_chain = self.prompt_template | self.llm
 
     def _initialize_text_generator(self):
         """
@@ -91,8 +91,8 @@ class PersonaExplorer:
                 self.llm.stop = textgen_config.stop
 
         try:
-            # Generate the personas using LLMChain
-            response = self.llm_chain.run(prompt_vars)
+            # Generate the personas using the updated chain
+            response = self.llm_chain.invoke(prompt_vars)
             logger.debug(f"Raw response from LLM: {response}")
 
             # Clean and parse the JSON output

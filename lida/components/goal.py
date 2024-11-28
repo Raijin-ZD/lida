@@ -3,7 +3,7 @@ import logging
 from typing import List, Union
 from lida.utils import clean_code_snippet
 from lida.datamodel import Goal, TextGenerationConfig, Persona
-from langchain import LLMChain, PromptTemplate
+from langchain import PromptTemplate
 from .textgen_langchain import TextGeneratorLLM  # Use relative import
 from dotenv import load_dotenv
 from llmx import TextGenerator  # Import TextGenerator from llmx
@@ -50,7 +50,7 @@ class GoalExplorer:
         self.text_gen = self._initialize_text_generator()
 
         # Wrap the TextGenerator with TextGeneratorLLM for LangChain compatibility
-        self.llm = TextGeneratorLLM(text_gen=self.text_gen)
+        self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=SYSTEM_INSTRUCTIONS)
 
         # Define the prompt template with input variables
         self.prompt_template = PromptTemplate(
@@ -68,8 +68,8 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
 """
         )
 
-        # Initialize the LLMChain
-        self.llm_chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
+        # Update the goal chain initialization
+        self.llm_chain = self.prompt_template | self.llm
 
     def _initialize_text_generator(self):
         """
@@ -128,8 +128,8 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
                 self.llm.stop = textgen_config.stop
 
         try:
-            # Generate the goals using LLMChain
-            response = self.llm_chain.run(prompt_vars)
+            # Generate the goals using the updated chain
+            response = self.llm_chain.invoke(prompt_vars)
             logger.debug(f"Raw response from LLM: {response}")
 
             # Clean and parse the JSON output

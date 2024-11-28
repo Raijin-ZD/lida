@@ -60,8 +60,13 @@ class Summarizer:
 
         # Define the prompt template
         self.summarization_prompt = PromptTemplate(
-    input_variables=["data_description"],
-    template=system_prompt + """
+            input_variables=["data_description"],
+            template=self.system_prompt + """
+            
+Given the following data description:
+
+{data_description}
+
 Your response should be a valid JSON object, and nothing else. Do not include any explanations or additional text. Use the following format:
 
 ```json
@@ -75,12 +80,15 @@ Your response should be a valid JSON object, and nothing else. Do not include an
             "semantic_type": "..."
         }},
         ...
-    ]
+    ],
+    "name": "...",
+    "file_name": "...",
+    "field_names": ["...", "...", ...]
 }}
 """)
 
         # Initialize the LLMChain using the wrapped LLM
-        self.summarization_chain = LLMChain(llm=self.llm, prompt=self.summarization_prompt)
+        self.summarization_chain = self.summarization_prompt | self.llm
 
     def _initialize_text_generator(self):
         """
@@ -233,6 +241,10 @@ Annotate the dictionary below. Only return a JSON object.
                 logger.error(f"Error decoding JSON: {e}")
                 logger.error(f"Summary Text: {summary_text}")
                 raise ValueError("The summarizer did not return valid JSON.")
+            # Ensure required fields are present in summary_data
+            summary_data.setdefault("name", file_name)
+            summary_data.setdefault("file_name", file_name)
+            summary_data.setdefault("field_names", data.columns.tolist())
             return summary_data
         else:
             data_properties = self.get_column_properties(data, n_samples)

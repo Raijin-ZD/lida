@@ -24,7 +24,6 @@ class TextGeneratorLLM(LLM):
         self._text_gen = text_gen
         self.system_prompt = system_prompt  # Store the system prompt
 
-
     def _llm_type(self) -> str:
         return "text_generator_llm"
     
@@ -36,14 +35,17 @@ class TextGeneratorLLM(LLM):
                 max_tokens=self.max_tokens,
                 stop=stop or self.stop,
             )
-            messages = [{'role': 'user', 'content': prompt},
-                        {'role': 'system', 'content': self.llm.system_prompt},
-]
+            # Correct the order and reference
+            messages = [
+                {'role': 'system', 'content': self.system_prompt},
+                {'role': 'user', 'content': prompt},
+            ]
             print(f"Messages sent to text_gen.generate: {messages}")
             print(f"Config: {config}")
             
+            # Correct the typo in the function call
             response = self._text_gen.generate(
-                messages==messages,
+                messages=messages,
                 config=config,
             )
 
@@ -84,3 +86,4 @@ class TextGeneratorLLM(LLM):
     def set_params(self, **kwargs):
         for param, value in kwargs.items():
             setattr(self, param, value)
+
