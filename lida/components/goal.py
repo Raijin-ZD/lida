@@ -123,7 +123,7 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
         # Update LLM parameters based on textgen_config
         if textgen_config:
             self.llm.temperature = textgen_config.temperature
-            self.llm.max_tokens = textgen_config.max_new_tokens
+            self.llm.max_tokens = textgen_config.max_tokens
             if textgen_config.stop:
                 self.llm.stop = textgen_config.stop
 

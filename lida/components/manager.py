@@ -16,7 +16,7 @@ import lida.web as lida
 
 logger = logging.getLogger("lida")
 
-print("manager.py is being importedtry.")  # to see if it's updated
+print("manager.py is being imported with summary update")  # to see if it's updated
 
 class Manager:
     def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None, **kwargs):
@@ -51,19 +51,20 @@ class Manager:
         self.data = None
         self.infographer = None
 
-    def summarize(self, data: Union[pd.DataFrame, str], textgen_config: TextGenerationConfig = None) -> Summary:
+    def summarize(self, data: Union[pd.DataFrame, str], textgen_config: TextGenerationConfig = None, summary_method: str = "default") -> Summary:
         """
         Generate a summary for the provided data using Summarizer.
 
         Args:
             data (Union[pd.DataFrame, str]): The dataset to summarize.
             textgen_config (TextGenerationConfig, optional): Configuration for text generation.
+            summary_method (str, optional): Summary method to use ('default', 'llm', 'langchain'). Defaults to "default".
 
         Returns:
             Summary: JSON-formatted summary wrapped in a Summary dataclass.
         """
-        summary_text = self.summarizer.summarize(data, textgen_config=textgen_config)
-        summary = Summary(content=summary_text)
+        summary_data = self.summarizer.summarize(data, text_gen=self.summarizer.text_gen, textgen_config=textgen_config, summary_method=summary_method)
+        summary = Summary(**summary_data)
         return summary
 
     def goals(

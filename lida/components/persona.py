@@ -1,53 +1,119 @@
 import json
 import logging
 from lida.utils import clean_code_snippet
-from llmx import TextGenerator
 from lida.datamodel import Persona, TextGenerationConfig
-
-
-system_prompt = """You are an experienced data analyst  who can take a dataset summary and generate a list of n personas (e.g., ceo or accountant for finance related data, economist for population or gdp related data, doctors for health data, or just users) that might be critical stakeholders in exploring some data and describe rationale for why they are critical. The personas should be prioritized based on their relevance to the data. Think step by step.
-Add personas who would be particularly interested in large-scale data exploration, such as data scientists specialized in big data analytics.
-
-Your response should be perfect JSON in the following format:
-```[{"persona": "persona1", "rationale": "..."},{"persona": "persona1", "rationale": "..."}]```
-"""
+from langchain import LLMChain, PromptTemplate
+from .textgen_langchain import TextGeneratorLLM  # Use relative import
+from llmx import llm  # Import llm function
 
 logger = logging.getLogger("lida")
 
+system_prompt = """You are an experienced data analyst who can take a dataset summary and generate a list of n personas (e.g., CEO or accountant for finance-related data, economist for population or GDP-related data, doctors for health data, or just users) that might be critical stakeholders in exploring some data and describe rationale for why they are critical. The personas should be prioritized based on their relevance to the data. Think step by step.
+Add personas who would be particularly interested in large-scale data exploration, such as data scientists specialized in big data analytics.
 
-class PersonaExplorer():
+Your response should be perfect JSON in the following format:
+[{"persona": "persona1", "rationale": "..."},{"persona": "persona2", "rationale": "..."}]
+"""
+
+class PersonaExplorer:
     """Generate personas given a summary of data"""
 
-    def __init__(self) -> None:
-        pass
-
-    def generate(self, summary: dict, textgen_config: TextGenerationConfig,
-                 text_gen: TextGenerator, n=5) -> list[Persona]:
-        """Generate personas given a summary of data"""
-
-        user_prompt = f"""The number of PERSONAs to generate is {n}. Generate {n} personas in the right format given the data summary below,\n .
-        {summary} \n""" + """
-
-        .
+    def __init__(self, model_type, model_name, api_key):
         """
+        Initialize the PersonaExplorer with specified model configuration.
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "assistant", "content": user_prompt},
-        ]
+        Args:
+            model_type (str): Type of the model (e.g., 'cohere').
+            model_name (str): Name of the model to use.
+            api_key (str): API key for the model provider.
+        """
+        self.model_type = model_type
+        self.model_name = model_name
+        self.api_key = api_key
 
-        result = text_gen.generate(messages=messages, config=textgen_config)
+        # Initialize the TextGenerator with the specified provider
+        self.text_gen = self._initialize_text_generator()
+
+        # Wrap the TextGenerator with TextGeneratorLLM for LangChain compatibility
+        self.llm = TextGeneratorLLM(text_gen=self.text_gen)
+        
+        # Define the prompt template
+        self.prompt_template = PromptTemplate(
+            input_variables=["n", "summary"],
+            template=system_prompt + "\nThe number of PERSONAs to generate is {n}. Generate {n} personas in the right format given the data summary below:\n{summary}"
+        )
+
+        # Initialize the LLMChain
+        self.llm_chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
+
+    def _initialize_text_generator(self):
+        """
+        Initialize the TextGenerator with the specified provider.
+
+        Returns:
+            TextGenerator: An instance of a concrete TextGenerator subclass.
+        """
+        kwargs = {
+            'provider': self.model_type,
+            'api_key': self.api_key,
+        }
+
+        if self.model_type.lower() == 'cohere':
+            kwargs['model'] = self.model_name  # Use 'model' for Cohere
+        else:
+            kwargs['model_name'] = self.model_name  # Use 'model_name' for other providers
+
+        return llm(**kwargs)
+
+    def generate(self, summary: dict, textgen_config: TextGenerationConfig, n=5) -> list[Persona]:
+        """
+        Generate personas given a summary of data.
+
+        Args:
+            summary (dict): Summary of the dataset.
+            textgen_config (TextGenerationConfig): Configuration for text generation.
+            n (int): Number of personas to generate.
+
+        Returns:
+            list[Persona]: A list of generated personas.
+        """
+        # Prepare variables for the prompt
+        prompt_vars = {
+            "n": n,
+            "summary": json.dumps(summary, indent=4)
+        }
+
+        # Update LLM parameters based on textgen_config
+        if textgen_config:
+            self.llm.temperature = textgen_config.temperature
+            self.llm.max_tokens = textgen_config.max_tokens
+            if textgen_config.stop:
+                self.llm.stop = textgen_config.stop
 
         try:
-            json_string = clean_code_snippet(result.text[0]["content"])
+            # Generate the personas using LLMChain
+            response = self.llm_chain.run(prompt_vars)
+            logger.debug(f"Raw response from LLM: {response}")
+
+            # Clean and parse the JSON output
+            json_string = clean_code_snippet(response)
             result = json.loads(json_string)
-            # cast each item in the list to a Goal object
+
+            # Ensure it's a list
             if isinstance(result, dict):
                 result = [result]
-            result = [Persona(**x) for x in result]
-        except json.decoder.JSONDecodeError:
-            logger.info(f"Error decoding JSON: {result.text[0]['content']}")
-            print(f"Error decoding JSON: {result.text[0]['content']}")
+
+            # Convert to list of Persona objects
+            personas = [Persona(**x) for x in result]
+            return personas
+
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding failed: {e}")
+            logger.error(f"Response received: {response}")
             raise ValueError(
-                "The model did not return a valid JSON object while attempting generate personas.  Consider using a larger model or a model with higher max token length.")
-        return result
+                "The model did not return a valid JSON object while attempting to generate personas. "
+                "Consider using a larger model or a model with higher max token length."
+            ) from e
+        except Exception as e:
+            logger.error(f"An error occurred during persona generation: {e}")
+            raise e
