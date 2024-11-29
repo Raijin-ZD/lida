@@ -69,7 +69,7 @@ class Manager:
 
     def goals(
         self,
-        summary: Summary,
+        summary: Union[dict, Summary],
         textgen_config: TextGenerationConfig = TextGenerationConfig(),
         n: int = 5,
         persona: Persona = None

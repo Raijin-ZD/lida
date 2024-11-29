@@ -19,7 +19,7 @@ class TextGeneratorLLM(LLM):
     system_prompt: str = ""  # Add this line
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def __init__(self, text_gen: TextGenerator,system_prompt, **kwargs):
+    def __init__(self, text_gen: TextGenerator, system_prompt: str = "", **kwargs):
         super().__init__(**kwargs)
         self._text_gen = text_gen
         self.system_prompt = system_prompt  # Store the system prompt

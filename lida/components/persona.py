@@ -12,7 +12,7 @@ system_prompt = """You are an experienced data analyst who can take a dataset su
 Add personas who would be particularly interested in large-scale data exploration, such as data scientists specialized in big data analytics.
 
 Your response should be perfect JSON in the following format:
-[{"persona": "persona1", "rationale": "..."},{"persona": "persona2", "rationale": "..."}]
+[{{"persona": "persona1", "rationale": "..."}}, {{"persona": "persona2", "rationale": "..."}}]
 """
 
 class PersonaExplorer:
@@ -40,7 +40,7 @@ class PersonaExplorer:
         # Define the prompt template
         self.prompt_template = PromptTemplate(
             input_variables=["n", "summary"],
-            template=system_prompt + "\nThe number of PERSONAs to generate is {n}. Generate {n} personas in the right format given the data summary below:\n{summary}"
+            template=system_prompt + "\nThe number of PERSONAs to generate is {{n}}. Generate {{n}} personas in the right format given the data summary below:\n{{summary}}"
         )
 
         # Update the persona chain initialization

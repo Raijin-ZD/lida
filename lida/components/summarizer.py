@@ -65,7 +65,7 @@ class Summarizer:
             
 Given the following data description:
 
-{data_description}
+{{data_description}}
 
 Your response should be a valid JSON object, and nothing else. Do not include any explanations or additional text. Use the following format:
 
@@ -195,9 +195,10 @@ Annotate the dictionary below. Only return a JSON object.
         enriched_summary = base_summary
         try:
             # Ensure response.text is a list of dictionaries and extract the 'content' field
-            content = response.text[0].get("content", "")
-            cleaned_summary = clean_code_snippet(content)
-            enriched_summary = json.loads(cleaned_summary)
+            #content = response.text[0].get("content", "")
+           # cleaned_summary = clean_code_snippet(content)
+            json_string = clean_code_snippet(response.text[0]["content"])
+            enriched_summary = json.loads(json_string)
         except json.decoder.JSONDecodeError:
             error_msg = f"The model did not return a valid JSON object while attempting to generate an enriched data summary. Consider using a default summary or a larger model with higher max token length. | {response.text[0]['content']}"
             logger.info(error_msg)
@@ -233,10 +234,28 @@ Annotate the dictionary below. Only return a JSON object.
             # Generate the summary using LLMChain
             summary_text = self.summarization_chain.invoke({"data_description": data_description})
             print("Summary Text:", summary_text)  # Add this line
+            print("Type of summary_text:", type(summary_text))  # Check type
+            print("Summary Text Content Structure:", {
+            "is_dict": isinstance(summary_text, dict),
+            "is_str": isinstance(summary_text, str),
+            "length": len(str(summary_text))
+            })
             cleaned_summary_text = clean_code_snippet(summary_text)  # Clean the output
-            print("Cleaned Summary Text:", cleaned_summary_text)  # Add this line
+            print("Cleaned Summary Text:", cleaned_summary_text)
+            print("Type of Cleaned summary_text:", type(cleaned_summary_text))  # Check type
+            print("Cleaned Summary Text Content Structure:", {
+            "is_dict": isinstance(cleaned_summary_text, dict),
+            "is_str": isinstance(cleaned_summary_text, str),
+            "length": len(str(cleaned_summary_text))
+            })
             try:
                 summary_data = json.loads(cleaned_summary_text)
+                print("Type of data:", type(summary_data))  # Check type
+                print("data Text Content Structure:", {
+                "is_dict": isinstance(summary_data, dict),
+                "is_str": isinstance(summary_data, str),
+                "length": len(str(summary_data))
+             })
             except json.JSONDecodeError as e:
                 logger.error(f"Error decoding JSON: {e}")
                 logger.error(f"Summary Text: {summary_text}")

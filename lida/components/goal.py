@@ -2,12 +2,14 @@ import json
 import logging
 from typing import List, Union
 from lida.utils import clean_code_snippet
-from lida.datamodel import Goal, TextGenerationConfig, Persona
+from lida.datamodel import Goal, TextGenerationConfig, Persona, Summary
 from langchain import PromptTemplate
 from .textgen_langchain import TextGeneratorLLM  # Use relative import
 from dotenv import load_dotenv
 from llmx import TextGenerator  # Import TextGenerator from llmx
 from llmx import llm  # Import llm function
+from dataclasses import asdict  # Add this import
+
 logger = logging.getLogger("lida")
 print("Goal loadedffff")
 SYSTEM_INSTRUCTIONS = """
@@ -19,12 +21,12 @@ FORMAT_INSTRUCTIONS = """
 THE OUTPUT MUST BE A VALID JSON LIST OF OBJECTS USING THE FOLLOWING FORMAT:
 
 [
-    { 
+    {{ 
         "index": 0,  
         "question": "What is the distribution of X?", 
         "visualization": "Histogram of X", 
         "rationale": "This visualization shows the distribution of X to understand its variability."
-    },
+    }},
     ...
 ]
 THE OUTPUT SHOULD ONLY USE THE JSON FORMAT ABOVE.
@@ -90,12 +92,18 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
 
         return llm(**kwargs)
 
-    def generate(self, summary: dict, textgen_config: TextGenerationConfig, n: int = 5, persona: Persona = None) -> List[Goal]:
+    def generate(
+        self,
+        summary: Union[dict, Summary],
+        textgen_config: TextGenerationConfig,
+        n: int = 5,
+        persona: Persona = None
+    ) -> List[Goal]:
         """
         Generate goals based on a summary of data.
 
         Args:
-            summary (dict): Summary of the dataset.
+            summary (Union[dict, Summary]): Summary of the dataset.
             textgen_config (TextGenerationConfig): Configuration for text generation.
             n (int, optional): Number of goals to generate. Defaults to 5.
             persona (Persona, optional): Persona details. Defaults to None.
@@ -103,6 +111,7 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
         Returns:
             List[Goal]: A list of generated goals with visualization suggestions and rationales.
         """
+
         if not persona:
             persona = Persona(
                 persona="A highly skilled data analyst who can develop complex, insightful goals about data",
@@ -111,10 +120,22 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
 
         persona_description = persona.persona
 
+        # Convert summary to a dictionary if it's an instance of Summary
+        if hasattr(summary, "dict"):
+            summary_dict = summary.dict()
+        else:
+            summary_dict = summary  # Assume it's already a dict
+
+        if isinstance(summary, dict):
+            summary_dict = summary
+        elif isinstance(summary, Summary):
+            summary_dict = asdict(summary)  # Use asdict for dataclasses
+        else:
+            raise TypeError("Summary must be a dict or an instance of Summary.")
         # Prepare variables for the prompt
         prompt_vars = {
             "n": n,
-            "summary": json.dumps(summary, indent=4),
+            "summary": json.dumps(summary_dict, indent=4),
             "persona_description": persona_description
         }
 
