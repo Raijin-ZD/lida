@@ -150,3 +150,4 @@ dmypy.json
 # Pyre type checker
 .pyre/
 env_lang/Lib/site-packages/kaleido/executable/bin/kaleido.exe
+yellow_tripdata_2015-01.csv
