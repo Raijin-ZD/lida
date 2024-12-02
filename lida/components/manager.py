@@ -2,11 +2,13 @@
 
 import os
 from typing import List, Union
+from dataclasses import asdict
 import logging
 import pandas as pd
+import dask.dataframe as dd  # Add this line
 from lida.datamodel import Goal, Summary, TextGenerationConfig, Persona
 from lida.utils import read_dataframe
-from .summarizer import Summarizer  # Relative import
+from .summarizer import Summarizer # Relative import
 from .goal import GoalExplorer
 from .persona import PersonaExplorer
 from .executor import ChartExecutor
@@ -51,19 +53,19 @@ class Manager:
         self.data = None
         self.infographer = None
 
-    def summarize(self, data: Union[pd.DataFrame, str], textgen_config: TextGenerationConfig = None, summary_method: str = "default") -> Summary:
+    def summarize(self, data: Union[pd.DataFrame, dd.DataFrame, str], textgen_config: TextGenerationConfig = None, summary_method: str = "default") -> Summary:
         """
         Generate a summary for the provided data using Summarizer.
 
         Args:
-            data (Union[pd.DataFrame, str]): The dataset to summarize.
+            data (Union[pd.DataFrame, dd.DataFrame, str]): The dataset to summarize.
             textgen_config (TextGenerationConfig, optional): Configuration for text generation.
             summary_method (str, optional): Summary method to use ('default', 'llm', 'langchain'). Defaults to "default".
 
         Returns:
             Summary: JSON-formatted summary wrapped in a Summary dataclass.
         """
-        summary_data = self.summarizer.summarize(data, text_gen=self.summarizer.text_gen, textgen_config=textgen_config, summary_method=summary_method)
+        summary_data = self.summarizer.summarize(data, textgen_config=textgen_config, summary_method=summary_method)
         summary = Summary(**summary_data)
         return summary
 
@@ -118,8 +120,8 @@ class Manager:
 
     def visualize(
         self,
-        summary: Summary,
-        goal: Goal,
+        summary: Union[dict, Summary],
+        goal: Union[dict, Goal],
         textgen_config: TextGenerationConfig = TextGenerationConfig(),
         library: str = "seaborn",
         return_error: bool = False,
@@ -128,8 +130,8 @@ class Manager:
         Generate visualization code based on summary and goal.
 
         Args:
-            summary (Summary): Summary of the dataset.
-            goal (Goal): Goal for visualization.
+            summary (Union[dict, Summary]): Summary of the dataset.
+            goal (Union[dict, Goal]): Goal for visualization.
             textgen_config (TextGenerationConfig, optional): Configuration for text generation.
             library (str, optional): Visualization library to use. Defaults to "seaborn".
             return_error (bool, optional): Whether to return errors. Defaults to False.
@@ -141,8 +143,12 @@ class Manager:
             goal = Goal(**goal)
         if isinstance(goal, str):
             goal = Goal(question=goal, visualization=goal, rationale="")
-
-        # Removed text_gen parameter
+        if isinstance(summary, Summary):
+            summary = asdict(summary)
+        
+        if isinstance(goal, Goal):
+            goal = asdict(goal)
+        
         code_specs = self.vizgen.generate(
             summary=summary,
             goal=goal,

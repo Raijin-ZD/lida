@@ -1,7 +1,9 @@
 import json
 import logging
+# Add the import for Dask DataFrame
 from typing import Union
 import pandas as pd
+import dask.dataframe as dd  # Add this line
 from lida.utils import clean_code_snippet, read_dataframe
 from lida.datamodel import TextGenerationConfig
 from llmx import TextGenerator, llm  # Import llm function
@@ -12,7 +14,7 @@ from .textgen_langchain import TextGeneratorLLM
 
 logger = logging.getLogger("lida")
 
-print("summarizer.py is being imported with summary update")  # to see if it's updated
+print("summarizer.py is being ifffe")  # to see if it's updated
 
 system_prompt = """
 You are an experienced data analyst that can annotate datasets. Your instructions are as follows:
@@ -63,9 +65,9 @@ class Summarizer:
             input_variables=["data_description"],
             template=self.system_prompt + """
             
-Given the following data description:
+Given the following detailed data description:
 
-{{data_description}}
+{data_description}
 
 Your response should be a valid JSON object, and nothing else. Do not include any explanations or additional text. Use the following format:
 
@@ -77,7 +79,10 @@ Your response should be a valid JSON object, and nothing else. Do not include an
         {{
             "name": "...",
             "field_description": "...",
-            "semantic_type": "..."
+            "semantic_type": "...",
+            "data_type": "...",
+            "dtype": "...",
+            "samples": ["...", "...", ...]
         }},
         ...
     ],
@@ -118,40 +123,47 @@ Your response should be a valid JSON object, and nothing else. Do not include an
             return int(value)
         else:
             return value
-
-    def get_column_properties(self, df: pd.DataFrame, n_samples: int = 3) -> list:
-        """Get properties of each column in a pandas DataFrame"""
+        
+    def to_dict(self):
+        return self.dict()
+    
+    def get_column_properties(self, df: Union[pd.DataFrame, dd.DataFrame], n_samples: int = 3) -> list:
         properties_list = []
         for column in df.columns:
-            dtype = df[column].dtype
+            series = df[column]
+            dtype = series.dtype
+            is_dask = isinstance(df, dd.DataFrame)
             properties = {}
+            # Determine data type
             if pd.api.types.is_numeric_dtype(dtype):
                 properties["dtype"] = "number"
-                properties["std"] = self.check_type(dtype, df[column].std())
-                properties["min"] = self.check_type(dtype, df[column].min())
-                properties["max"] = self.check_type(dtype, df[column].max())
-
+                num_unique = series.nunique()
+                if num_unique.compute() if is_dask else num_unique > 20:
+                    properties["data_type"] = "continuous"
+                else:
+                    properties["data_type"] = "discrete"
+            elif pd.api.types.is_categorical_dtype(dtype) or pd.api.types.is_object_dtype(dtype):
+                properties["dtype"] = "category"
+                properties["data_type"] = "categorical"
             elif pd.api.types.is_bool_dtype(dtype):
                 properties["dtype"] = "boolean"
-            elif pd.api.types.is_object_dtype(dtype):
-                # Check if the string column can be cast to a valid datetime
-                try:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        pd.to_datetime(df[column], errors='raise')
-                        properties["dtype"] = "date"
-                except ValueError:
-                    # Check if the string column has a limited number of values
-                    if df[column].nunique() / len(df[column]) < 0.5:
-                        properties["dtype"] = "category"
-                    else:
-                        properties["dtype"] = "string"
-            elif pd.api.types.is_categorical_dtype(dtype):
-                properties["dtype"] = "category"
+                properties["data_type"] = "categorical"
             elif pd.api.types.is_datetime64_any_dtype(dtype):
                 properties["dtype"] = "date"
+                properties["data_type"] = "temporal"
             else:
                 properties["dtype"] = str(dtype)
+                properties["data_type"] = "unknown"
+
+            # Add samples for each column
+            non_null_values = series.dropna()
+            if is_dask:
+                non_null_values = non_null_values.compute()
+            unique_values = non_null_values.unique()
+            n_samples_actual = min(n_samples, len(unique_values))
+            # Convert unique_values to a pandas Series before sampling
+            samples = pd.Series(unique_values).sample(n=n_samples_actual, random_state=42).tolist()
+            properties["samples"] = samples
 
             # Add min and max if dtype is date
             if properties["dtype"] == "date":
@@ -164,11 +176,17 @@ Your response should be a valid JSON object, and nothing else. Do not include an
                     properties["max"] = cast_date_col.max()
             # Add additional properties to the output dictionary
             nunique = df[column].nunique()
+            # Adjust sampling for Dask DataFrame
             if "samples" not in properties:
-                non_null_values = df[column][df[column].notnull()].unique()
-                n_samples_actual = min(n_samples, len(non_null_values))
-                samples = pd.Series(non_null_values).sample(
-                    n_samples_actual, random_state=42).tolist()
+                if is_dask:
+                    non_null_values = series.dropna().unique().compute()
+                    n_samples_actual = min(n_samples, len(non_null_values))
+                    samples = non_null_values[:n_samples_actual].tolist()
+                else:
+                    non_null_values = series.dropna().unique()
+                    n_samples_actual = min(n_samples, len(non_null_values))
+                    samples = pd.Series(non_null_values).sample(
+                        n_samples_actual, random_state=42).tolist()
                 properties["samples"] = samples
             properties["num_unique_values"] = nunique
             properties["semantic_type"] = ""
@@ -207,18 +225,31 @@ Annotate the dictionary below. Only return a JSON object.
         return enriched_summary
 
     def summarize(
-            self, data: Union[pd.DataFrame, str],
+            self, data: Union[pd.DataFrame, dd.DataFrame, str],  # Include dd.DataFrame
             text_gen: TextGenerator = None, file_name="", n_samples: int = 3,
             textgen_config=TextGenerationConfig(n=1),
             summary_method: str = "default", encoding: str = 'utf-8') -> dict:
-        """Summarize data from a pandas DataFrame or a file location"""
-
+        # Adjust type checking to include Dask DataFrame
         if text_gen is not None:
             self.text_gen = text_gen
 
         if isinstance(data, str):
             file_name = data.split("/")[-1]
             data = read_dataframe(data, encoding=encoding)
+        
+        # Correctly identify if data is a Dask DataFrame
+        is_dask = isinstance(data, dd.DataFrame)
+
+        # Sample data if it's a Dask DataFrame
+        if is_dask:
+            # Adjust the fraction as needed
+            sample_frac = 0.01  # Sample 1% of the data
+            sampled_data = data.sample(frac=sample_frac, random_state=42).compute()
+        else:
+            sampled_data = data
+
+        # Generate column properties with new details
+        data_properties = self.get_column_properties(sampled_data, n_samples)
 
         if summary_method == "langchain":
             if self.llm is None or self.summarization_chain is None:
@@ -230,43 +261,79 @@ Annotate the dictionary below. Only return a JSON object.
                 if textgen_config.stop:
                     self.llm.stop = textgen_config.stop
 
-            data_description = self._prepare_data_description(data)
+            # Prepare detailed data description
+            fields_info = []
+            for prop in data_properties:
+                field_info = {
+                    "name": prop["column"],
+                    "data_type": prop["properties"].get("data_type", ""),
+                    "dtype": str(prop["properties"].get("dtype", "")),
+                    "num_unique_values": prop["properties"].get("num_unique_values", 0),
+                    "samples": prop["properties"].get("samples", []),
+                }
+                fields_info.append(field_info)
+
+            data_description = {
+                "dataset_name": file_name,
+                "fields": fields_info,
+            }
+            data_description_str = json.dumps(data_description, indent=4)
+
+            # Add logging to inspect the data description
+            logger.debug(f"Data description being sent to LLM:\n{data_description_str}")
+
+            # Create a new prompt template with correct input variable syntax
+            summarization_prompt = PromptTemplate(
+                input_variables=["data_description"],
+                template=self.system_prompt + """
+Given the following detailed data description:
+
+{data_description}
+
+Your response should be a valid JSON object, and nothing else. Do not include any explanations or additional text. Use the following format:
+
+```json
+{{
+    "dataset_name": "...",
+    "dataset_description": "...",
+    "fields": [
+        {{
+            "name": "...",
+            "field_description": "...",
+            "semantic_type": "...",
+            "data_type": "...",
+            "dtype": "...",
+            "samples": ["...", "...", ...]
+        }},
+        ...
+    ],
+    "name": "...",
+    "file_name": "...",
+    "field_names": ["...", "...", ...]
+}}
+""")
+
+            # Initialize the LLMChain using the wrapped LLM
+            summarization_chain = summarization_prompt | self.llm
+
             # Generate the summary using LLMChain
-            summary_text = self.summarization_chain.invoke({"data_description": data_description})
-            print("Summary Text:", summary_text)  # Add this line
-            print("Type of summary_text:", type(summary_text))  # Check type
-            print("Summary Text Content Structure:", {
-            "is_dict": isinstance(summary_text, dict),
-            "is_str": isinstance(summary_text, str),
-            "length": len(str(summary_text))
-            })
-            cleaned_summary_text = clean_code_snippet(summary_text)  # Clean the output
-            print("Cleaned Summary Text:", cleaned_summary_text)
-            print("Type of Cleaned summary_text:", type(cleaned_summary_text))  # Check type
-            print("Cleaned Summary Text Content Structure:", {
-            "is_dict": isinstance(cleaned_summary_text, dict),
-            "is_str": isinstance(cleaned_summary_text, str),
-            "length": len(str(cleaned_summary_text))
-            })
+            summary_text = summarization_chain.invoke({"data_description": data_description_str})
+
+            cleaned_summary_text = clean_code_snippet(summary_text)
             try:
                 summary_data = json.loads(cleaned_summary_text)
-                print("Type of data:", type(summary_data))  # Check type
-                print("data Text Content Structure:", {
-                "is_dict": isinstance(summary_data, dict),
-                "is_str": isinstance(summary_data, str),
-                "length": len(str(summary_data))
-             })
             except json.JSONDecodeError as e:
                 logger.error(f"Error decoding JSON: {e}")
                 logger.error(f"Summary Text: {summary_text}")
                 raise ValueError("The summarizer did not return valid JSON.")
+
             # Ensure required fields are present in summary_data
             summary_data.setdefault("name", file_name)
             summary_data.setdefault("file_name", file_name)
             summary_data.setdefault("field_names", data.columns.tolist())
             return summary_data
         else:
-            data_properties = self.get_column_properties(data, n_samples)
+            data_properties = self.get_column_properties(sampled_data, n_samples)
 
             # Default single-stage summary construction
             base_summary = {
@@ -296,9 +363,9 @@ Annotate the dictionary below. Only return a JSON object.
             data_summary["field_names"] = data.columns.tolist()
             data_summary["file_name"] = file_name
 
-            return data_summary
+            return data_summary.to_dict()
 
-    def _prepare_data_description(self, data: Union[pd.DataFrame, str]) -> str:
+    def _prepare_data_description(self, data: Union[pd.DataFrame, dd.DataFrame, str]) -> str:
         """
         Prepare the data description from the given data.
 
@@ -308,7 +375,11 @@ Annotate the dictionary below. Only return a JSON object.
         Returns:
             str: String representation of the data description.
         """
-        if isinstance(data, pd.DataFrame):
+        if isinstance(data, dd.DataFrame):
+            # Sample a small fraction of data for summarization
+            sampled_data = data.sample(frac=0.001, random_state=42).compute()
+            return sampled_data.to_string(index=False)
+        elif isinstance(data, pd.DataFrame):
             return data.head(5).to_string(index=False)
         elif isinstance(data, str):
             return data

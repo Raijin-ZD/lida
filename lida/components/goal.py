@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 from llmx import TextGenerator  # Import TextGenerator from llmx
 from llmx import llm  # Import llm function
 from dataclasses import asdict  # Add this import
+import pandas as pd
+import dask.dataframe as dd  # Add this line
 
 logger = logging.getLogger("lida")
 print("Goal loadedffff")
@@ -64,7 +66,7 @@ The number of GOALS to generate is {{n}}. The goals should be based on the data 
 
 {{summary}}
 
-The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{{persona_description}}}}' persona, who is interested in complex, insightful goals about the data.
+The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{persona_description}}' persona, who is interested in complex, insightful goals about the data.
 
 {FORMAT_INSTRUCTIONS}
 """
@@ -122,7 +124,7 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
 
         # Convert summary to a dictionary if it's an instance of Summary
         if hasattr(summary, "dict"):
-            summary_dict = summary.dict()
+            summary = asdict(summary)
         else:
             summary_dict = summary  # Assume it's already a dict
 
@@ -133,6 +135,7 @@ The generated goals SHOULD BE FOCUSED ON THE INTERESTS AND PERSPECTIVE of a '{{{
         else:
             raise TypeError("Summary must be a dict or an instance of Summary.")
         # Prepare variables for the prompt
+        print("summary_dict", summary_dict)
         prompt_vars = {
             "n": n,
             "summary": json.dumps(summary_dict, indent=4),

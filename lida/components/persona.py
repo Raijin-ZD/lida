@@ -5,6 +5,9 @@ from lida.datamodel import Persona, TextGenerationConfig
 from langchain import LLMChain, PromptTemplate
 from .textgen_langchain import TextGeneratorLLM  # Use relative import
 from llmx import llm  # Import llm function
+from dataclasses import asdict
+import pandas as pd
+import dask.dataframe as dd  # Add this line
 
 logger = logging.getLogger("lida")
 
