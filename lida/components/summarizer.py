@@ -363,7 +363,7 @@ Your response should be a valid JSON object, and nothing else. Do not include an
             data_summary["field_names"] = data.columns.tolist()
             data_summary["file_name"] = file_name
 
-            return data_summary.to_dict()
+            return data_summary
 
     def _prepare_data_description(self, data: Union[pd.DataFrame, dd.DataFrame, str]) -> str:
         """
