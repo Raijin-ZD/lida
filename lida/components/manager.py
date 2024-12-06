@@ -120,6 +120,7 @@ class Manager:
 
     def visualize(
         self,
+        data,
         summary: Union[dict, Summary],
         goal: Union[dict, Goal],
         textgen_config: TextGenerationConfig = TextGenerationConfig(),
@@ -147,6 +148,9 @@ class Manager:
             summary = asdict(summary)
         
         if isinstance(goal, Goal):
+            # Ensure 'visualization' attribute is present
+            if not goal.visualization:
+                goal.visualization = goal.question  # Use 'question' if 'visualization' is missing
             goal = asdict(goal)
         
         code_specs = self.vizgen.generate(
@@ -154,11 +158,12 @@ class Manager:
             goal=goal,
             library=library,
             textgen_config=textgen_config,
+            data=data  # Add this line to pass data
         )
         
         return self.execute(
             code_specs=code_specs,
-            data=self.data,
+            data=data,  # Change this line to pass data
             summary=summary,
             library=library,
             return_error=return_error,

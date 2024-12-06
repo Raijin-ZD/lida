@@ -5,7 +5,7 @@ import io
 import os
 import re
 import traceback
-from typing import Any, List
+from typing import Any, List, Union
 import datashader as ds
 import datashader.transfer_functions as tf
 import matplotlib.pyplot as plt
@@ -103,7 +103,7 @@ class ChartExecutor:
         self,
         code_specs: List[str],
         data: Any,
-        summary: Summary,
+        summary: Union[dict, Summary],
         library="altair",
         return_error: bool = False,
     ) -> Any:

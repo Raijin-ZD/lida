@@ -1,6 +1,7 @@
 # vizgenerator.py
 import json
 import logging
+import pandas as pd
 from typing import List, Dict, Optional
 from langchain import PromptTemplate
 from langchain.agents import AgentType, initialize_agent, Tool
@@ -16,6 +17,7 @@ from lida.utils import clean_code_snippet
 from lida.components.summarizer import Summarizer
 from lida.components.scaffold import ChartScaffold
 from lida.components.goal import GoalExplorer
+import dask.dataframe as dd
 
 print("Viz loaded 3am")
 
@@ -23,11 +25,11 @@ logger = logging.getLogger("lida")
 SYSTEM_INSTRUCTIONS = """
 You are an experienced data visualization developer who can generate code based on data summaries and goals.
 You must follow these rules:
-1. Use only basic, documented functions from the specified visualization library
-2. Handle both Pandas and Dask DataFrames appropriately 
-3. Return complete, executable code with proper imports
-4. Include necessary data preprocessing steps
-5. Use appropriate visualization types based on the data and goal
+1. Use only basic, documented functions from the specified visualization library.
+2. Use the provided 'data' variable directly; do not load or read data from files.
+3. Return complete, executable code with proper imports.
+4. Include necessary data preprocessing steps.
+5. Use appropriate visualization types based on the data and goal.
 """
 
 FORMAT_INSTRUCTIONS = """
@@ -40,7 +42,7 @@ class CodeGenerationTool(BaseTool):
     name :str = "code_generator"
     description :str = "Generates visualization code based on data summary and goals"
     
-    def _run(self, inputs: str) -> str:
+    def _run(self, inputs: str, **kwargs) -> str:
         # Parse the inputs from JSON string
         try:
             data = json.loads(inputs)
@@ -59,7 +61,7 @@ class DataAnalysisTool(BaseTool):
     name :str = "data_analyzer"
     description :str = "Analyzes data properties to suggest appropriate visualization approaches"
     
-    def _run(self, inputs: str) -> str:
+    def _run(self, inputs: str, **kwargs) -> str:
         try:
             data = json.loads(inputs)
             summary = data.get('summary', {})
@@ -76,19 +78,29 @@ class DataAnalysisTool(BaseTool):
             return str(e)
 
 class VizGenerator:
-    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None):
+    def __init__(self, data=None, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None):
         """Initialize VizGenerator with model configuration"""
         self.model_type = model_type
         self.model_name = model_name
         self.api_key = api_key
+        self.data = data  # Store the data provided
 
         # Initialize text generator
         self.text_gen = self._initialize_text_generator()
         
         # Initialize TextGeneratorLLM
         self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=SYSTEM_INSTRUCTIONS)
+        
+        # Remove the creation of the Pandas DataFrame Agent
+        # Previously we had:
+        # self.dataframe_agent = create_pandas_dataframe_agent(
+        #     llm=self.llm,
+        #     df=self.data if self.data is not None else pd.DataFrame(),
+        #     verbose=True,
+        #     agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION
+        # )
 
-        # Initialize new tools
+        # Update tools to include only necessary tools
         self.tools = [
             CodeGenerationTool(),
             DataAnalysisTool(),
@@ -96,14 +108,15 @@ class VizGenerator:
                 name="template_selector",
                 func=self._select_visualization_template,
                 description="Selects appropriate visualization template based on data and goal"
-            )
+            ),
+            # Remove DataFrame Agent tools
         ]
 
-        # Initialize the agent with improved configuration
+        # Initialize the agent with updated configuration
         self.agent = initialize_agent(
             tools=self.tools,
             llm=self.llm,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,  # Changed agent type
             verbose=True
         )
 
@@ -118,6 +131,8 @@ DATASET SUMMARY:
 
 VISUALIZATION GOAL:
 {{goal}}
+
+THE DATA IS ALREADY LOADED INTO A VARIABLE NAMED 'data'.
 
 GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
 
@@ -142,7 +157,7 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
 
         return llm(**kwargs)
 
-    def generate(self, summary, goal, library='seaborn', textgen_config=None):
+    def generate(self, summary, goal, library='seaborn', data=None, textgen_config=None):
         """Generate visualization code based on summary and goal"""
         # Convert summary to a dictionary if it's an instance of Summary
         if hasattr(summary, "to_dict"):
@@ -157,15 +172,35 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
             goal_dict = goal  # Assume it's already a dict
 
         # Prepare the input for the agent
+        summary_dict = self._prepare_summary(summary)
+        goal_dict = self._prepare_goal(goal)
+        # Ensure 'visualization' key exists in goal_dict
+        if 'visualization' not in goal_dict or not goal_dict['visualization']:
+            goal_dict['visualization'] = goal_dict.get('question', '')
         agent_input = {
             "summary": summary_dict,
             "goal": goal_dict,
-            "library": library
+            "library": library,
+            "data_info": "The data is already loaded into a variable named 'data'."
         }
 
         # Update LLM parameters if textgen_config provided
         if textgen_config:
             self._update_llm_config(textgen_config)
+
+        # Update data if provided
+        if data is not None:
+            self.data = data
+
+        # Ensure data is available
+        if self.data is not None:
+            if isinstance(self.data, dd.DataFrame):
+                # If data is a Dask DataFrame, compute or sample
+                self.data = self.data.sample(frac=0.1).compute()
+            else:
+                self.data = self.data
+        else:
+            raise ValueError("Data must be provided for visualization generation.")
 
         try:
             # Get visualization suggestions from the data analyzer
@@ -177,9 +212,12 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
                 logger.warning("Large dataset detected, switching to datashader")
                 library = "datashader"
             
+            # Update agent input with analysis
+            agent_input.update({"analysis": analysis_dict})
+
             # Generate code using the agent
-            response = self.agent.run(json.dumps({**agent_input, "analysis": analysis_dict}))
-            
+            response = self.agent.run(json.dumps(agent_input))
+
             # Clean and return the code
             code = clean_code_snippet(response)
             return [code] if code else []
