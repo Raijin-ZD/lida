@@ -120,7 +120,8 @@ class VizGenerator:
             tools=self.tools,
             llm=self.llm,
             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,  # Changed agent type
-            verbose=True
+            verbose=True,
+            max_iterations=30  # Increase the iteration limit
         )
 
         # Define visualization prompt template
