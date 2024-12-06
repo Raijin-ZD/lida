@@ -18,6 +18,7 @@ from lida.components.summarizer import Summarizer
 from lida.components.scaffold import ChartScaffold
 from lida.components.goal import GoalExplorer
 import dask.dataframe as dd
+from types import SimpleNamespace
 
 print("Viz loaded 3am")
 
@@ -39,20 +40,22 @@ THE CODE SHOULD BE COMPLETE AND EXECUTABLE.
 
 
 class CodeGenerationTool(BaseTool):
-    name :str = "code_generator"
-    description :str = "Generates visualization code based on data summary and goals"
-    
+    name: str = "code_generator"
+    description: str = "Generates visualization code based on data summary and goals"
+
     def _run(self, inputs: str, **kwargs) -> str:
-        # Parse the inputs from JSON string
         try:
             data = json.loads(inputs)
             library = data.get('library', 'seaborn')
             summary = data.get('summary', {})
-            goal = data.get('goal', {})
+            goal_dict = data.get('goal', {})
+
+            # Convert 'goal' dict to an object with attributes
+            goal = SimpleNamespace(**goal_dict)
 
             scaffold = ChartScaffold()
             template, instructions = scaffold.get_template(goal, library)
-            
+
             return template
         except Exception as e:
             return str(e)
