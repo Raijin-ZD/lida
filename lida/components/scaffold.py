@@ -9,7 +9,11 @@ class ChartScaffold(object):
         pass
 
     def get_template(self, goal: Goal, library: str):
-
+        plot_type = goal.plot_type
+        x_axis = goal.x_axis
+        y_axis = goal.y_axis
+        color = goal.color
+        size = goal.size
         general_instructions = f"""
 **Instructions for Generating the Visualization Code:**
 
@@ -147,41 +151,30 @@ chart = plot(data)  # Data is already loaded. No additional code beyond this lin
 """
         elif library == "datashader":
             instructions = {
-        "role": "system",
-        "content": f"""{general_instructions}
+                "role": "system",
+                "content": f"""{general_instructions}
 
-**Specific Instructions for Datashader:**
+        **Specific Instructions for Datashader:**
+        - Insert logic only into <stub>.
+        - Return `img` from `plot(data)` after shading.
 
-- **Use only basic, well-documented functions from Datashader**.
-- **Avoid using any functions or methods unless you are certain they exist in Datashader's API**.
-- In the `<stub>` section, write code to:
-  - Create the plot using basic Datashader functions like `Canvas`, `aggregate`, and `shade`.
-
-**Ensure that:**
-
-- The code is **simple**, **complete**, and **executable**.
-- All variables and functions used are defined within the code.
-- The `plot(data)` function returns the Datashader image (`img`).
-
-**Do Not Include:**
-
-- Any explanations, comments, or extraneous text.
-- Any code to load the data (it's already loaded in `data`).
-"""
-    }
-            template = f"""
-                import datashader as ds
-                import datashader.transfer_functions as tf
-                import pandas as pd
-                from colorcet import fire  
-                <imports>
-                def plot(data):
-                    # Data preprocessing
-                    <stub>
-                    return img
-
-                chart = plot(data)  # Data is already loaded. No additional code beyond this line.
         """
+            }
+            template = f"""
+        import datashader as ds
+        import datashader.transfer_functions as tf
+        import pandas as pd
+        from colorcet import fire
+        <imports>
+        def plot(data):
+            # Data preprocessing
+            <stub>
+            return img
+
+        chart = plot(data)  # Data is already loaded. No additional code beyond this line.
+        """
+
+
         else:
             raise ValueError(
                 "Unsupported library. Choose from 'matplotlib', 'seaborn', 'plotly', 'ggplot', 'altair', and 'datashader'."

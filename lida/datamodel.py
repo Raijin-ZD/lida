@@ -37,6 +37,11 @@ class Goal:
     question: str
     visualization: str
     rationale: str
+    plot_type: str = "scatter"
+    x_axis: Union[str, List[str]] = ""
+    y_axis: Union[str, List[str]] = ""
+    color: Optional[str] = None
+    size: Optional[str] = None
     index: Optional[int] = 0
 
     def _repr_markdown_(self):
@@ -48,6 +53,16 @@ class Goal:
 **Visualization:** `{self.visualization}`
 
 **Rationale:** {self.rationale}
+
+**Plot Type:** {self.plot_type}
+
+**X-Axis:** {self.x_axis}
+
+**Y-Axis:** {self.y_axis}
+
+**Color:** {self.color}
+
+**Size:** {self.size}
 """
 
 
@@ -121,6 +136,7 @@ class VisualizeWebRequest:
     textgen_config: Optional[TextGenerationConfig] = field(
         default_factory=TextGenerationConfig
     )
+    is_large_data: bool = False  # Add this flag to indicate if the data is large
 
 
 @dataclass
@@ -232,9 +248,3 @@ class InfographicsRequest:
     n: int = 1
     style_prompt: Union[str, List[str]] = ""
     # return_pil: bool = False
-
-@dataclass
-class VisualizeWebRequest:
-    ...
-    is_large_data: bool = False  # Add this flag to indicate if the data is large
-

@@ -6,28 +6,42 @@ from lida.datamodel import Goal, TextGenerationConfig, Persona, Summary
 from langchain import PromptTemplate
 from .textgen_langchain import TextGeneratorLLM  # Use relative import
 from dotenv import load_dotenv
-from llmx import TextGenerator  # Import TextGenerator from llmx
 from llmx import llm  # Import llm function
 from dataclasses import asdict  # Add this import
 import pandas as pd
 import dask.dataframe as dd  # Add this line
 
 logger = logging.getLogger("lida")
-print("Goal loadedffff")
+print("Goal loadeggg")
 SYSTEM_INSTRUCTIONS = """
-You are an experienced data analyst who can generate insightful GOALS about data, including visualization suggestions and rationales. The visualizations you recommend must follow best practices (e.g., use bar charts instead of pie charts for comparing quantities) and be meaningful (e.g., plot longitude and latitude on maps where appropriate). Each goal must include a question, a visualization (referencing exact column fields from the summary), and a rationale (justification for dataset fields used and what will be learned from the visualization). Each goal must mention the exact fields from the dataset summary above.
-Ensure that goals involving visualization of large datasets consider using data aggregation techniques such as histograms, density plots, or other summary-based visualizations to avoid overplotting.
+You are an experienced data analyst who can generate insightful GOALS about data, including visualization suggestions and rationales. The goals you generate must include the following fields:
+
+- **question**: A clear, concise question that can be answered by visualizing the data.
+- **visualization**: A description of the visualization, referencing exact column fields from the summary.
+- **rationale**: Justification for the dataset fields used and what will be learned from the visualization.
+- **plot_type**: The type of plot to use (e.g., 'scatter', 'line', 'bar').
+- **x_axis**: The field(s) to use for the x-axis.
+- **y_axis**: The field(s) to use for the y-axis.
+- **color**: (Optional) The field to use for color encoding.
+- **size**: (Optional) The field to use for size encoding.
+
+Ensure that each goal mentions the exact fields from the dataset summary and considers using data aggregation techniques to avoid overplotting when dealing with large datasets.
 """
 
 FORMAT_INSTRUCTIONS = """
 THE OUTPUT MUST BE A VALID JSON LIST OF OBJECTS USING THE FOLLOWING FORMAT:
 
 [
-    {{ 
-        "index": 0,  
-        "question": "What is the distribution of X?", 
-        "visualization": "Histogram of X", 
-        "rationale": "This visualization shows the distribution of X to understand its variability."
+    {{
+        "index": 0,
+        "question": "Your question here",
+        "visualization": "Description of the visualization",
+        "rationale": "Explanation of why this visualization is useful",
+        "plot_type": "Type of plot",
+        "x_axis": "Field(s) for x-axis",
+        "y_axis": "Field(s) for y-axis",
+        "color": "Field for color encoding (optional)",
+        "size": "Field for size encoding (optional)"
     }},
     ...
 ]
