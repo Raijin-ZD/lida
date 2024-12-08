@@ -24,20 +24,10 @@ print("Viz loaded 3am")
 
 logger = logging.getLogger("lida")
 SYSTEM_INSTRUCTIONS = """
-You are an experienced data visualization developer who generates code based on data summaries and goals.
-Follow these rules strictly:
-1. Use only basic, documented functions from the specified visualization library.
-2. Use the provided 'data' variable directly; do not load or read data from files.
-3. Return complete, executable code with proper imports.
-4. Include necessary data preprocessing steps if needed.
-5. Use appropriate visualization types based on the data and goal.
-6. DO NOT rename the main plotting function defined in the template (`plot(data)`).
-7. Insert your plotting logic only in the `<stub>` section inside `plot(data)`.
-8. If there is an `<imports>` section, you may add imports there. Do not modify code outside `<stub>` and `<imports>`.
-9. Do not add explanations or comments outside of code. Return the code block only.
+You are an experienced data visualization developer. Generate code based on data summaries and goals using the specified visualization library. Use the provided 'data' variable directly and return complete, executable code with proper imports. Do not add explanations or comments outside of the code
+DO NOT rename the main plotting function defined in the template (plot(data))..
 """
-# old Format instructions #RETURN ONLY THE VISUALIZATION CODE AS A STRING, WITH NO ADDITIONAL TEXT OR FORMATTING.
-                          #THE CODE SHOULD BE COMPLETE AND EXECUTABLE.
+
 FORMAT_INSTRUCTIONS = """
 RESPONSE FORMAT:
 
@@ -75,26 +65,6 @@ class CodeGenerationTool(BaseTool):
         except Exception as e:
             return str(e)
 
-#class DataAnalysisTool(BaseTool):
-#    name :str = "data_analyzer"
-#    description :str = "Analyzes data properties to suggest appropriate visualization approaches"
-#    
-#   def _run(self, inputs: str, **kwargs) -> str:
-#        try:
-#            data = json.loads(inputs)
-#            summary = data.get('summary', {})
-#            # Removed the call to summarizer.summarize(data)
-#            
-#            # Analyze column types and suggest visualizations
-#            suggestions = {
-#                "large_data": summary.get("rows", 0) > 10000,
-#                "column_types": summary.get("column_types", {}),
-#                "suggested_library": "datashader" if summary.get("rows", 0) > 100000 else "seaborn"
-#            }
-#            return json.dumps(suggestions)
-#        except Exception as e:
-#            return str(e)
-
 class VizGenerator:
     def __init__(self, data=None, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None):
         """Initialize VizGenerator with model configuration"""
@@ -108,28 +78,11 @@ class VizGenerator:
         
         # Initialize TextGeneratorLLM
         self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=SYSTEM_INSTRUCTIONS)
-        
-        # Remove the creation of the Pandas DataFrame Agent
-        # Previously we had:
-        # self.dataframe_agent = create_pandas_dataframe_agent(
-        #     llm=self.llm,
-        #     df=self.data if self.data is not None else pd.DataFrame(),
-        #     verbose=True,
-        #     agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION
-        # )
 
         # Update tools to include only necessary tools
         self.tools = [
             CodeGenerationTool(),
-            ]
-            #DataAnalysisTool(),
-            #Tool(
-               # name="template_selector",
-                #func=self._select_visualization_template,
-               # description="Selects appropriate visualization template based on data and goal"
-            #),
-            # Remove DataFrame Agent tools
-        
+        ]
 
         # Initialize the agent with updated configuration
         self.agent = initialize_agent(
@@ -137,9 +90,8 @@ class VizGenerator:
             llm=self.llm,
             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,  # Changed agent type
             verbose=True,
-           # max_iterations=max_iterations,  # Increase the iteration limit
+            max_iterations=5,  # Set max_iterations to 5
             handle_parsing_errors=True  # Add this parameter
-
         )
 
         # Define visualization prompt template
@@ -210,7 +162,6 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
             "summary": summary_dict,
             "goal": goal_dict,
             "library": library,
-            #"data_info": "The data is already loaded into a variable named 'data'."
         }
 
         # Update LLM parameters if textgen_config provided
@@ -232,18 +183,6 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
             raise ValueError("Data must be provided for visualization generation.")
 
         try:
-            # Get visualization suggestions from the data analyzer
-            #analysis = self.tools[1]._run(json.dumps(agent_input))
-            #analysis_dict = json.loads(analysis)
-
-            # Update library if needed for large datasets
-            #if analysis_dict.get("large_data") and library != "datashader":
-                #logger.warning("Large dataset detected, switching to datashader")
-                #library = "datashader"
-            
-            # Update agent input with analysis
-            #agent_input.update({"analysis": analysis_dict})
-
             # Generate code using the agent
             response = self.agent.run(json.dumps(agent_input))
 
