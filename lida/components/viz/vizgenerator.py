@@ -2,38 +2,57 @@
 import json
 import logging
 import pandas as pd
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
+from dataclasses import asdict
+
 from langchain import PromptTemplate
 from langchain.agents import AgentType, initialize_agent, Tool
+from langchain.agents.agent import AgentOutputParser
 from langchain.chains import LLMChain
-from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.tools import BaseTool
-from dataclasses import asdict
-from lida.datamodel import Goal, Summary, TextGenerationConfig
-from ..textgen_langchain import TextGeneratorLLM
+from langchain.memory import ConversationSummaryBufferMemory
+from langchain.schema import AgentAction, AgentFinish, OutputParserException
 from llmx import llm
+from ..textgen_langchain import TextGeneratorLLM
 from lida.utils import clean_code_snippet
-from lida.components.summarizer import Summarizer
 from lida.components.scaffold import ChartScaffold
-from lida.components.goal import GoalExplorer
+from lida.datamodel import Goal, Summary, TextGenerationConfig
 import dask.dataframe as dd
-from types import SimpleNamespace
-
-print("Viz loaded 3am")
 
 logger = logging.getLogger("lida")
+print("Viz loaded 3am")
+
 SYSTEM_INSTRUCTIONS = """
-You are an experienced data visualization developer. Generate code based on data summaries and goals using the specified visualization library. Use the provided 'data' variable directly and return complete, executable code with proper imports. Do not add explanations or comments outside of the code
-DO NOT rename the main plotting function defined in the template (plot(data))..
+You are an experienced data visualization developer.
+Generate code based on data summaries and goals using the specified visualization library.
+Use the provided 'data' variable directly and return complete, executable code with proper imports.
+Do not add explanations or comments outside of the code.
+DO NOT rename the main plotting function defined in the template (plot(data)).
+Make sure the final code snippet is complete, contains no placeholders like <stub> or <imports>, and is fully executable.
 """
 
 FORMAT_INSTRUCTIONS = """
 RESPONSE FORMAT:
-
 ```python
 # Your code here
 """
+
+class CustomOutputParser(AgentOutputParser):
+    def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
+        if "Final Answer:" in llm_output:
+            return AgentFinish(
+                return_values={"output": llm_output.split("Final Answer:")[-1].strip()},
+                log=llm_output,
+            )
+        import re
+        action_regex = r"Action\s*:\s*(.*?)\nAction\s*Input\s*:\s*(.*)"
+        match = re.search(action_regex, llm_output, re.DOTALL)
+        if match:
+            action = match.group(1).strip()
+            action_input = match.group(2).strip()
+            return AgentAction(tool=action, tool_input=action_input, log=llm_output)
+        raise OutputParserException(f"Could not parse LLM output: {llm_output}")
 
 class CodeGenerationTool(BaseTool):
     name: str = "code_generator"
@@ -46,7 +65,6 @@ class CodeGenerationTool(BaseTool):
             summary = data.get('summary', {})
             goal_dict = data.get('goal', {})
 
-            # Convert goal dict to Goal object
             goal_dict.setdefault("question", "")
             goal_dict.setdefault("visualization", "")
             goal_dict.setdefault("rationale", "")
@@ -60,51 +78,32 @@ class CodeGenerationTool(BaseTool):
 
             scaffold = ChartScaffold()
             template, instructions = scaffold.get_template(goal, library)
-
             return template
         except Exception as e:
             return str(e)
 
 class VizGenerator:
     def __init__(self, data=None, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None):
-        """Initialize VizGenerator with model configuration"""
         self.model_type = model_type
         self.model_name = model_name
         self.api_key = api_key
-        self.data = data  # Store the data provided
+        self.data = data
 
-        # Initialize text generator
         self.text_gen = self._initialize_text_generator()
-        
-        # Initialize TextGeneratorLLM
         self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=SYSTEM_INSTRUCTIONS)
+        self.tools = [CodeGenerationTool()]
+        self.memory = ConversationSummaryBufferMemory(llm=self.llm, memory_key="history", k=2, return_messages=True)
 
-        # Update tools to include only necessary tools
-        self.tools = [
-            CodeGenerationTool(),
-        ]
-
-        # Initialize the agent with updated configuration
-        self.agent = initialize_agent(
-            tools=self.tools,
-            llm=self.llm,
-            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,  # Changed agent type
-            verbose=True,
-            max_iterations=5,  # Set max_iterations to 5
-            handle_parsing_errors=True  # Add this parameter
-        )
-
-        # Define visualization prompt template
         self.prompt_template = PromptTemplate(
-            input_variables=["summary", "goal", "library"],
+            input_variables=["summary", "goal", "library", "history"],
             template=f"""
 {SYSTEM_INSTRUCTIONS}
 
 ADDITIONAL RULES:
-
-Do not rename the plot(data) function.
-Insert your code only in <stub> for plotting logic and <imports> if you need extra imports.
-Do not alter code outside these sections.
+- Do not rename the plot(data) function.
+- Insert all necessary code (imports, plotting logic) directly into the code snippet.
+- Do not leave any placeholders like <stub> or <imports>.
+- The code returned must be complete, executable, and contain no extra explanations or placeholders.
 
 DATASET SUMMARY:
 {{summary}}
@@ -112,19 +111,57 @@ DATASET SUMMARY:
 VISUALIZATION GOAL:
 {{goal}}
 
-THE DATA IS ALREADY LOADED INTO A VARIABLE NAMED 'data'.
+The data is already loaded into 'data'.
 
-GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
+We will use a reasoning approach with multiple experts to ensure the best solution:
+Imagine three different experts are answering this question.
+All experts will write down 1 step of their thinking, then share it.
+If any expert realizes they're wrong at any point, they leave.
+After they share their thoughts:
+Expert 1: ...
+Expert 2: ...
+Expert 3: ...
+Experts Conclusion: Which is the best path?
+
+Then produce the code.
+
+Use the following format:
+
+Question: The input question you must answer
+Expert 1: first reasoning
+Expert 2: second reasoning
+Expert 3: third reasoning
+Experts Conclusion: best path chosen
+Action: code_generator
+Action Input: the JSON input you will provide to code_generator tool
+Observation: the result of the action
+... (Repeat Action and Observation if needed)
+Final Thought: summarize what you did
+Final Answer: the final code snippet
 
 {FORMAT_INSTRUCTIONS}
-"""
+
+{{history}}
+Question: Please generate the visualization code now.
+""".strip()
         )
 
-        # Create the generation chain
         self.viz_chain = self.prompt_template | self.llm
 
+        self.agent = initialize_agent(
+            tools=self.tools,
+            llm=self.llm,
+            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+            verbose=True,
+            memory=self.memory,
+            max_iterations=3,
+            handle_parsing_errors=True,
+            agent_kwargs={
+                "output_parser": CustomOutputParser(),
+            }
+        )
+
     def _initialize_text_generator(self):
-        """Initialize TextGenerator with provider configuration"""
         kwargs = {
             'provider': self.model_type,
             'api_key': self.api_key,
@@ -138,64 +175,50 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
         return llm(**kwargs)
 
     def generate(self, summary, goal, library='seaborn', data=None, textgen_config=None):
-        """Generate visualization code based on summary and goal"""
-        # Convert summary to a dictionary if it's an instance of Summary
-
         if hasattr(summary, "to_dict"):
             summary_dict = summary.to_dict()
         else:
-            summary_dict = summary  # Assume it's already a dict
+            summary_dict = summary
 
-        # Convert goal to a dictionary if it's an instance of Goal
         if hasattr(goal, "to_dict"):
             goal_dict = goal.to_dict()
         else:
-            goal_dict = goal  # Assume it's already a dict
+            goal_dict = goal
 
-        # Prepare the input for the agent
         summary_dict = self._prepare_summary(summary)
         goal_dict = self._prepare_goal(goal)
-        # Ensure 'visualization' key exists in goal_dict
+
         if 'visualization' not in goal_dict or not goal_dict['visualization']:
             goal_dict['visualization'] = goal_dict.get('question', '')
+
         agent_input = {
             "summary": summary_dict,
             "goal": goal_dict,
             "library": library,
         }
 
-        # Update LLM parameters if textgen_config provided
         if textgen_config:
             self._update_llm_config(textgen_config)
 
-        # Update data if provided
         if data is not None:
             self.data = data
 
-        # Ensure data is available
         if self.data is not None:
-            if isinstance(self.data, dd.DataFrame):
-                # If data is a Dask DataFrame, compute or sample
+            if isinstance(self.data, dd.DataFrame) and library != 'datashader':
+            # Sample only if the library is not 'datashader'
                 self.data = self.data.sample(frac=0.1).compute()
-            else:
-                self.data = self.data
         else:
             raise ValueError("Data must be provided for visualization generation.")
 
         try:
-            # Generate code using the agent
             response = self.agent.run(json.dumps(agent_input))
-
-            # Clean and return the code
             code = clean_code_snippet(response)
             return [code] if code else []
-
         except Exception as e:
             logger.error(f"Error generating visualization code: {e}")
             raise
 
     def _prepare_summary(self, summary):
-        """Prepare summary for JSON serialization"""
         if isinstance(summary, dict):
             return summary
         elif hasattr(summary, 'dict'):
@@ -205,7 +228,6 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
         return summary
 
     def _prepare_goal(self, goal):
-        """Prepare goal for JSON serialization"""
         if isinstance(goal, dict):
             goal_dict = goal
         elif hasattr(goal, 'dict'):
@@ -214,27 +236,12 @@ GENERATE VISUALIZATION CODE USING THE {{library}} LIBRARY.
             goal_dict = asdict(goal)
         else:
             goal_dict = {"visualization": str(goal)}
-        
-        # Ensure 'visualization' key exists
         if 'visualization' not in goal_dict or not goal_dict['visualization']:
             goal_dict['visualization'] = goal_dict.get('question', '')
-        
         return goal_dict
 
     def _update_llm_config(self, textgen_config):
-        """Update LLM configuration"""
         self.llm.temperature = textgen_config.temperature
         self.llm.max_tokens = textgen_config.max_tokens
         if textgen_config.stop:
             self.llm.stop = textgen_config.stop
-
-    def _select_visualization_template(self, goal_type: str) -> str:
-        """Selects appropriate visualization template based on goal type"""
-        templates = {
-            "distribution": "sns.histplot(data=data, x='{col}', kde=True)",
-            "correlation": "sns.scatterplot(data=data, x='{col1}', y='{col2}')",
-            "comparison": "sns.barplot(data=data, x='{col1}', y='{col2}')",
-            "trend": "sns.lineplot(data=data, x='{col1}', y='{col2}')",
-            "composition": "data.plot.pie(y='{col}')",
-        }
-        return templates.get(goal_type, "sns.histplot(data=data, x='{col}')")

@@ -1,7 +1,7 @@
 from dataclasses import asdict
-
 from lida.datamodel import Goal
 print("Generating visualization code scaffold...")
+
 class ChartScaffold(object):
     """Return code scaffold for charts in multiple visualization libraries"""
 
@@ -27,7 +27,7 @@ Given the dataset summary and the visualization goal, the `plot(data)` function 
 **Data Handling:**
 - The data is already loaded and available in the variable `data`.
 - The code should handle both Pandas and Dask DataFrames.
-- If `data` is a Dask DataFrame and the library requires a Pandas DataFrame, convert it appropriately (e.g., using `data.compute()`).
+- If `data` is a Dask DataFrame and the library requires a Pandas DataFrame, convert it (e.g., using `data.compute()`).
 
 **General Guidelines:**
 - **Avoid unnecessary complexity**.
@@ -50,134 +50,127 @@ Given the dataset summary and the visualization goal, the `plot(data)` function 
 """
 
         if library == "matplotlib":
-            instructions = {
-                "role": "assistant",
-                "content": f"{matplotlib_instructions} Use Basemap for charts that require a map."
-            }
             template = f"""
 import matplotlib.pyplot as plt
 import pandas as pd
 import dask.dataframe as dd
-<imports>
+
 def plot(data):
-    # Check if data is a Dask DataFrame and sample if necessary
     if isinstance(data, dd.DataFrame):
         data = data.sample(frac=0.1, random_state=42).compute()
-    <stub>  # only modify this section
-    plt.title('{goal.question}', wrap=True)
+    # Insert plotting code below. No placeholders. Example:
+    # plt.plot(data['{x_axis}'], data['{y_axis}'])
+    # plt.xlabel('{x_axis}')
+    # plt.ylabel('{y_axis}')
+    # plt.title('{goal.question}', wrap=True)
     return plt
 
-chart = plot(data)  # Data is already loaded. No additional code beyond this line.
+chart = plot(data)
 """
         elif library == "seaborn":
-            instructions = {
-                "role": "assistant",
-                "content": f"{matplotlib_instructions} Use appropriate seaborn specific functions when possible."
-            }
             template = f"""
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
 import dask.dataframe as dd
-<imports>
+
 def plot(data):
-    # Check if data is a Dask DataFrame and sample if necessary
     if isinstance(data, dd.DataFrame):
         data = data.sample(frac=0.1, random_state=42).compute()
-    <stub>  # only modify this section
-    plt.title('{goal.question}', wrap=True)
+    # Insert plotting code below. No placeholders. Example:
+    # sns.scatterplot(data=data, x='{x_axis}', y='{y_axis}')
+    # plt.xlabel('{x_axis}')
+    # plt.ylabel('{y_axis}')
+    # plt.title('{goal.question}', wrap=True)
     return plt
 
-chart = plot(data)  # Data is already loaded. No additional code beyond this line.
+chart = plot(data)
 """
         elif library == "ggplot":
-            instructions = {
-                "role": "assistant",
-                "content": f"{general_instructions} The `plot` method must return a ggplot object (`chart`). Think step by step."
-            }
             template = f"""
 import plotnine as p9
 import pandas as pd
 import dask.dataframe as dd
-<imports>
+
 def plot(data):
-    # Check if data is a Dask DataFrame and sample if necessary
     if isinstance(data, dd.DataFrame):
         data = data.sample(frac=0.1, random_state=42).compute()
-    chart = <stub>
-
+    # Insert plotting code below. Example:
+    # chart = (p9.ggplot(data, p9.aes(x='{x_axis}', y='{y_axis}')) + p9.geom_point())
     return chart
 
-chart = plot(data)  # Data is already loaded. No additional code beyond this line.
+chart = plot(data)
 """
         elif library == "altair":
-            instructions = {
-                "role": "system",
-                "content": f"""{general_instructions} Always add a type that is BASED on `semantic_type` to each field such as `:Q`, `:O`, `:N`, `:T`, `:G`. Use `:T` if `semantic_type` is year or date. The `plot` method must return an Altair chart object (`chart`). Think step by step."""
-            }
             template = f"""
 import altair as alt
 import pandas as pd
 import dask.dataframe as dd
-<imports>
+
 def plot(data):
-    # Check if data is a Dask DataFrame and sample if necessary
     if isinstance(data, dd.DataFrame):
         data = data.sample(frac=0.1, random_state=42).compute()
-    <stub>  # only modify this section
+    # Insert plotting code below. Example:
+    # chart = alt.Chart(data).mark_point().encode(
+    #     x='{x_axis}:Q', 
+    #     y='{y_axis}:Q'
+    # )
     return chart
 
-chart = plot(data)  # Data is already loaded. No additional code beyond this line.
+chart = plot(data)
 """
         elif library == "plotly":
-            instructions = {
-                "role": "system",
-                "content": f"""{general_instructions} If calculating metrics such as mean, median, mode, etc., ALWAYS use the option `numeric_only=True` when applicable and available. AVOID visualizations that require `nbformat` library. DO NOT include `fig.show()`. The `plot` method must return a Plotly figure object (`fig`). Think step by step."""
-            }
             template = f"""
 import plotly.express as px
 import pandas as pd
 import dask.dataframe as dd
-<imports>
+
 def plot(data):
-    # Check if data is a Dask DataFrame and sample if necessary
     if isinstance(data, dd.DataFrame):
         data = data.sample(frac=0.1, random_state=42).compute()
-    fig = <stub>  # only modify this section
-
+    # Insert plotting code below. Example:
+    # fig = px.scatter(data, x='{x_axis}', y='{y_axis}')
     return fig
 
-chart = plot(data)  # Data is already loaded. No additional code beyond this line.
+chart = plot(data)
 """
         elif library == "datashader":
-            instructions = {
-                "role": "system",
-                "content": f"""{general_instructions}
+            instructions = f"""
+{general_instructions}
 
-        **Specific Instructions for Datashader:**
-        - Insert logic only into <stub>.
-        - Return `img` from `plot(data)` after shading.
+**Additional Instructions for Datashader:**
 
-        """
-            }
+- Use only basic, well-documented functions from Datashader.
+- Avoid using any functions or methods unless you are certain they exist in Datashader's API.
+- Create the plot using basic Datashader functions like `Canvas`, `aggregate`, and `shade`.
+- Ensure the code is simple, complete, and executable.
+- All variables and functions used are defined within the code.
+- The `plot(data)` function returns the Datashader image (`img`).
+- Do not include any explanations, comments, or extraneous text.
+- Do not include any code to load the data (it's already loaded in `data`).
+"""
             template = f"""
-        import datashader as ds
-        import datashader.transfer_functions as tf
-        import pandas as pd
-        from colorcet import fire
-        <imports>
-        def plot(data):
-            # Data preprocessing
-            <stub>
-            return img
+import datashader as ds
+import datashader.transfer_functions as tf
+import pandas as pd
+from colorcet import fire  # Optional color map
 
-        chart = plot(data)  # Data is already loaded. No additional code beyond this line.
-        """
+def plot(data):
+    # Data preprocessing if needed to work with Datashader
+    # Example code:
+    # canvas = ds.Canvas(plot_width=800, plot_height=600)
+    # agg = canvas.points(data, '{x_axis}', '{y_axis}')
+    # img = tf.shade(agg, cmap=fire)
+    return img
 
-
+chart = plot(data)
+"""
+            return template, instructions
         else:
             raise ValueError(
                 "Unsupported library. Choose from 'matplotlib', 'seaborn', 'plotly', 'ggplot', 'altair', and 'datashader'."
             )
+
+        instructions = {}  # You can leave this empty now since we are not using placeholders
 
         return template, instructions
