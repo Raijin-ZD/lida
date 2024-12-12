@@ -151,3 +151,8 @@ dmypy.json
 .pyre/
 env_lang/Lib/site-packages/kaleido/executable/bin/kaleido.exe
 yellow_tripdata_2015-01.csv
+# Ignore virtual environment directories
+env/
+venv/
+env_lang/
+data.csv
