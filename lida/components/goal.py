@@ -51,7 +51,7 @@ THE OUTPUT SHOULD ONLY USE THE JSON FORMAT ABOVE.
 class GoalExplorer:
     """Generate goals with visualization suggestions and rationales based on a data summary."""
 
-    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None):
+    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge', api_key: str = None):
         """
         Initialize the GoalExplorer with specified model configuration.
 

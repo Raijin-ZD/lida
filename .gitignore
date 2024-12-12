@@ -156,3 +156,5 @@ env/
 venv/
 env_lang/
 data.csv
+/env_lang
+/env_lang/Lib

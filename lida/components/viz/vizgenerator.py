@@ -83,7 +83,7 @@ class CodeGenerationTool(BaseTool):
             return str(e)
 
 class VizGenerator:
-    def __init__(self, data=None, model_type: str = 'cohere', model_name: str = 'command-xlarge-nightly', api_key: str = None):
+    def __init__(self, data=None, model_type: str = 'cohere', model_name: str = 'command-xlarge', api_key: str = None):
         self.model_type = model_type
         self.model_name = model_name
         self.api_key = api_key
@@ -196,6 +196,9 @@ Question: Please generate the visualization code now.
             "goal": goal_dict,
             "library": library,
         }
+        
+        print("Agent Input JSON:", json.dumps(agent_input, indent=2))
+
 
         if textgen_config:
             self._update_llm_config(textgen_config)
