@@ -19,9 +19,10 @@ from lida.utils import clean_code_snippet
 from lida.components.scaffold import ChartScaffold
 from lida.datamodel import Goal, Summary, TextGenerationConfig
 import dask.dataframe as dd
+from transformers import GPT2Tokenizer
 
 logger = logging.getLogger("lida")
-print("Viz loaded 63am")
+print("Viz loaded 653am")
 
 SYSTEM_INSTRUCTIONS = """
 You are an experienced data visualization developer.
@@ -61,7 +62,7 @@ class CodeGenerationTool(BaseTool):
     def _run(self, inputs: str, **kwargs) -> str:
         try:
             data = json.loads(inputs)
-            library = data.get('library', 'seaborn')
+            library = data.get('library', 'datashader')
             summary = data.get('summary', {})
             goal_dict = data.get('goal', {})
 
@@ -88,6 +89,7 @@ class VizGenerator:
         self.model_name = model_name
         self.api_key = api_key
         self.data = data
+        self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # Initialize tokenizer
 
         self.text_gen = self._initialize_text_generator()
         self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=SYSTEM_INSTRUCTIONS)
@@ -199,7 +201,6 @@ Question: Please generate the visualization code now.
         
         print("Agent Input JSON:", json.dumps(agent_input, indent=2))
 
-
         if textgen_config:
             self._update_llm_config(textgen_config)
 
@@ -208,13 +209,28 @@ Question: Please generate the visualization code now.
 
         if self.data is not None:
             if isinstance(self.data, dd.DataFrame) and library != 'datashader':
-            # Sample only if the library is not 'datashader'
                 self.data = self.data.sample(frac=0.1).compute()
         else:
             raise ValueError("Data must be provided for visualization generation.")
 
+        memory_variables = self.memory.load_memory_variables({})
+        history = memory_variables.get("history", "")
+
+        prompt = self.prompt_template.format(
+            summary=json.dumps(summary_dict),
+            goal=json.dumps(goal_dict),
+            library=library,
+            history=history
+        )
+
+        # Truncate prompt if it exceeds the token limit
+        max_tokens = 4081
+        tokens = self.tokenizer.encode(prompt)
+        if len(tokens) > max_tokens:
+            prompt = self.tokenizer.decode(tokens[:max_tokens])
+
         try:
-            response = self.agent.run(json.dumps(agent_input))
+            response = self.agent.run(prompt)
             code = clean_code_snippet(response)
             return [code] if code else []
         except Exception as e:

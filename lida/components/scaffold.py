@@ -135,43 +135,23 @@ def plot(data):
 chart = plot(data)
 """
         elif library == "datashader":
-            instructions = f"""{general_instructions}
-
-        **Specific Instructions for Datashader:**
-
-        - **Use only basic, well-documented functions from Datashader**.
-        - **Avoid using any functions or methods unless you are certain they exist in Datashader's API**.
-        - In the code, write code to:
-        - Create the plot using basic Datashader functions like `Canvas`, `aggregate`, and `shade`.
-
-        **Ensure that:**
-
-        - The code is **simple**, **complete**, and **executable**.
-        - All variables and functions used are defined within the code.
-        - The `plot(data)` function returns the Datashader image (`img`).
-
-        **Do Not Include:**
-
-        - Any explanations, comments, or extraneous text.
-        - Any code to load the data (it's already loaded in `data`).
-        """
             template = f"""
-        import datashader as ds
-        import datashader.transfer_functions as tf
-        import pandas as pd
-        from colorcet import fire  # Optional color map
-        # Additional imports if necessary
+import datashader as ds
+import datashader.transfer_functions as tf
+import pandas as pd
+import dask.dataframe as dd
+from colorcet import fire  # Optional color map
 
-        def plot(data):
-            # Data preprocessing if needed
-            # Create the plot using Canvas, aggregate, and shade
-            # Example:
-            # canvas = ds.Canvas(plot_width=800, plot_height=600)
-            # agg = canvas.points(data, '{x_axis}', '{y_axis}')
-            # img = tf.shade(agg, cmap=fire)
-            return img
+def plot(data):
+    if isinstance(data, dd.DataFrame):
+        data = data.sample(frac=0.1, random_state=42).compute()
+    # Insert plotting code below. Example:
+    canvas = ds.Canvas(plot_width=800, plot_height=600)
+    agg = canvas.points(data, '{x_axis}', '{y_axis}')
+    img = tf.shade(agg, cmap=fire)
+    return img
 
-        chart = plot(data)  
+chart = plot(data) 
 """
             return template, instructions
         else:
