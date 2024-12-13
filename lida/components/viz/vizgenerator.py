@@ -21,7 +21,7 @@ from lida.datamodel import Goal, Summary, TextGenerationConfig
 import dask.dataframe as dd
 
 logger = logging.getLogger("lida")
-print("Viz loaded 3am")
+print("Viz loaded 63am")
 
 SYSTEM_INSTRUCTIONS = """
 You are an experienced data visualization developer.
@@ -133,7 +133,7 @@ Expert 2: second reasoning
 Expert 3: third reasoning
 Experts Conclusion: best path chosen
 Action: code_generator
-Action Input: the JSON input you will provide to code_generator tool
+Action Input: a valid JSON string containing "library", "summary", and "goal"
 Observation: the result of the action
 ... (Repeat Action and Observation if needed)
 Final Thought: summarize what you did
