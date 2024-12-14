@@ -153,13 +153,12 @@ def plot(data):
 
 chart = plot(data) 
 """
-            return template, instructions
+            return template
         else:
             raise ValueError(
                 "Unsupported library. Choose from 'matplotlib', 'seaborn', 'plotly', 'ggplot', 'altair', and 'datashader'."
             )
 
-        instructions = {}  # You can leave this empty now since we are not using placeholders
 
-        return template, instructions
+        return template 
 

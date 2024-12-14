@@ -22,16 +22,14 @@ import dask.dataframe as dd
 from transformers import GPT2Tokenizer
 
 logger = logging.getLogger("lida")
-print("Viz loaded 653am")
+print("Viz loaded 65xx3am")
 
 SYSTEM_INSTRUCTIONS = """
-You are an experienced data visualization developer.
-Generate code based on data summaries and goals using the specified visualization library.
-Use the provided 'data' variable directly and return complete, executable code with proper imports.
-Do not add explanations or comments outside of the code.
-DO NOT rename the main plotting function defined in the template (plot(data)).
-Make sure the final code snippet is complete, contains no placeholders like <stub> or <imports>, and is fully executable.
-"""
+You are an experienced data visualization developer. 
+Generate code using the specified visualization library. 
+Use the provided 'data' directly and return complete, executable code with proper imports.
+Do not add explanations or comments outside of the code. Do not rename plot(data).
+Make sure the final code snippet is complete and executable.""".strip()
 
 FORMAT_INSTRUCTIONS = """
 RESPONSE FORMAT:
@@ -78,7 +76,7 @@ class CodeGenerationTool(BaseTool):
             goal = Goal(**goal_dict)
 
             scaffold = ChartScaffold()
-            template, instructions = scaffold.get_template(goal, library)
+            template = scaffold.get_template(goal, library)
             return template
         except Exception as e:
             return str(e)
@@ -94,59 +92,33 @@ class VizGenerator:
         self.text_gen = self._initialize_text_generator()
         self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=SYSTEM_INSTRUCTIONS)
         self.tools = [CodeGenerationTool()]
-        self.memory = ConversationSummaryBufferMemory(llm=self.llm, memory_key="history", k=2, return_messages=True)
+        self.memory = ConversationSummaryBufferMemory(llm=self.llm, memory_key="history", k=1, return_messages=True)
 
         self.prompt_template = PromptTemplate(
-            input_variables=["summary", "goal", "library", "history"],
-            template=f"""
+    input_variables=["summary", "goal", "library", "history"],
+    template=f"""
 {SYSTEM_INSTRUCTIONS}
 
 ADDITIONAL RULES:
-- Do not rename the plot(data) function.
-- Insert all necessary code (imports, plotting logic) directly into the code snippet.
-- Do not leave any placeholders like <stub> or <imports>.
-- The code returned must be complete, executable, and contain no extra explanations or placeholders.
 
-DATASET SUMMARY:
-{{summary}}
+1) Do not rename the plot(data) function.
+2)Insert all necessary code (imports, plotting logic) directly into the code snippet.
+3) The code returned must be complete, executable, and contain no extra explanations or placeholders.
+4) Only use the {{library}} library for the visualization, do not switch to another library.
+5) Do not include any explanations or comments outside of the code.
+6) dont create any dataframes, use the data variable directly as its already loaded into 'data'.
 
-VISUALIZATION GOAL:
-{{goal}}
+DATASET SUMMARY: {{summary}}
+
+VISUALIZATION GOAL: {{goal}}
 
 The data is already loaded into 'data'.
 
-We will use a reasoning approach with multiple experts to ensure the best solution:
-Imagine three different experts are answering this question.
-All experts will write down 1 step of their thinking, then share it.
-If any expert realizes they're wrong at any point, they leave.
-After they share their thoughts:
-Expert 1: ...
-Expert 2: ...
-Expert 3: ...
-Experts Conclusion: Which is the best path?
-
-Then produce the code.
-
-Use the following format:
-
-Question: The input question you must answer
-Expert 1: first reasoning
-Expert 2: second reasoning
-Expert 3: third reasoning
-Experts Conclusion: best path chosen
-Action: code_generator
-Action Input: a valid JSON string containing "library", "summary", and "goal"
-Observation: the result of the action
-... (Repeat Action and Observation if needed)
-Final Thought: summarize what you did
-Final Answer: the final code snippet
+Question: Please generate the visualization code now.
 
 {FORMAT_INSTRUCTIONS}
 
-{{history}}
-Question: Please generate the visualization code now.
-""".strip()
-        )
+{{history}} """.strip() )
 
         self.viz_chain = self.prompt_template | self.llm
 
@@ -155,8 +127,8 @@ Question: Please generate the visualization code now.
             llm=self.llm,
             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
             verbose=True,
-            memory=self.memory,
-            max_iterations=3,
+            #memory=self.memory,
+            max_iterations=1,
             handle_parsing_errors=True,
             agent_kwargs={
                 "output_parser": CustomOutputParser(),
@@ -224,13 +196,13 @@ Question: Please generate the visualization code now.
         )
 
         # Truncate prompt if it exceeds the token limit
-        max_tokens = 4081
-        tokens = self.tokenizer.encode(prompt)
-        if len(tokens) > max_tokens:
-            prompt = self.tokenizer.decode(tokens[:max_tokens])
+        #max_tokens = 4081
+        #tokens = self.tokenizer.encode(prompt)
+        #if len(tokens) > max_tokens:
+           # prompt = self.tokenizer.decode(tokens[:max_tokens])
 
         try:
-            response = self.agent.run(prompt)
+            response = self.agent.run(json.dumps(agent_input))
             code = clean_code_snippet(response)
             return [code] if code else []
         except Exception as e:
