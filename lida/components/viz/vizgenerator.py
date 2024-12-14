@@ -2,7 +2,8 @@
 import json
 import logging
 import pandas as pd
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
+import re
 from dataclasses import asdict
 
 from langchain import PromptTemplate
@@ -20,46 +21,92 @@ from lida.components.scaffold import ChartScaffold
 from lida.datamodel import Goal, Summary, TextGenerationConfig
 import dask.dataframe as dd
 from transformers import GPT2Tokenizer
+from pydantic import Field
 
 logger = logging.getLogger("lida")
-print("Viz loaded 65xx3am")
+print("Viz loaded 65bbasfasfx3am")
 
 SYSTEM_INSTRUCTIONS = """
-You are an experienced data visualization developer. 
-Generate code using the specified visualization library. 
-Use the provided 'data' directly and return complete, executable code with proper imports.
-Do not add explanations or comments outside of the code. Do not rename plot(data).
-Make sure the final code snippet is complete and executable.""".strip()
+You are an experienced data visualization developer.
+
+CRITICAL RULES:
+1. **Use ONLY the existing 'data' variable.**
+2. **Do NOT load or create new data.**
+3. **When specifying an action, use the exact tool names provided.**
+4. **Use the specified visualization library without changing it.**
+
+AVAILABLE TOOLS:
+- **code_generator**
+- **code_validator**
+
+When taking an action, you must specify the tool name exactly as it appears above, including lowercase letters and underscores.
+""".strip()
 
 FORMAT_INSTRUCTIONS = """
 RESPONSE FORMAT:
 ```python
-# Your code here
+def plot(data):
+    # Your visualization code here using only the 'data' variable
+    return visualization_object
 """
 
+# Update CustomOutputParser to accept tools
 class CustomOutputParser(AgentOutputParser):
+    def __init__(self, tools: List[BaseTool]):
+        self.tools = tools
+
     def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
-        if "Final Answer:" in llm_output:
-            return AgentFinish(
-                return_values={"output": llm_output.split("Final Answer:")[-1].strip()},
-                log=llm_output,
-            )
-        import re
-        action_regex = r"Action\s*:\s*(.*?)\nAction\s*Input\s*:\s*(.*)"
-        match = re.search(action_regex, llm_output, re.DOTALL)
-        if match:
-            action = match.group(1).strip()
-            action_input = match.group(2).strip()
-            return AgentAction(tool=action, tool_input=action_input, log=llm_output)
-        raise OutputParserException(f"Could not parse LLM output: {llm_output}")
+        # Clean and standardize output
+        cleaned_output = llm_output.strip()
+
+        # Check for action format
+        if "Action:" in cleaned_output:
+            match = re.search(r"Action:\s*(.*?)\nAction Input:\s*(.*)", cleaned_output, re.DOTALL)
+            if match:
+                # Normalize action name
+                action_name = match.group(1).strip().lower().replace(' ', '_')
+                # Check if action_name exists in tools
+                if action_name not in [tool.name for tool in self.tools]:
+                    raise OutputParserException(f"Invalid tool name: {action_name}")
+                return AgentAction(
+                    tool=action_name,
+                    tool_input=match.group(2).strip(),
+                    log=llm_output
+                )
+
+        # Existing code for code block extraction
+        if "```python" in cleaned_output:
+            code_block = self._extract_code_block(cleaned_output)
+            if code_block:
+                return AgentFinish(
+                    return_values={"output": code_block},
+                    log=llm_output
+                )
+                
+        raise OutputParserException("Invalid output format")
+
+    def _extract_code_block(self, text: str) -> str:
+        """Extract valid Python code block"""
+        code_match = re.search(r"```python\s*(.*?)\s*```", text, re.DOTALL)
+        if code_match and "def plot(data):" in code_match.group(1):
+            return code_match.group(1).strip()
+        return ""
 
 class CodeGenerationTool(BaseTool):
-    name: str = "code_generator"
-    description: str = "Generates visualization code based on data summary and goals"
+    name: str = Field(default="code_generator")
+    description: str = Field(default="Generates visualization code based on data summary and goals")
 
-    def _run(self, inputs: str, **kwargs) -> str:
+    def _run(self, inputs: Union[str, dict], **kwargs: Any) -> str:
         try:
-            data = json.loads(inputs)
+            # Handle both string and dict inputs
+            if isinstance(inputs, str):
+                try:
+                    data = json.loads(inputs)
+                except json.JSONDecodeError:
+                    data = {"library": "seaborn", "summary": {}, "goal": {}}
+            else:
+                data = inputs
+
             library = data.get('library', 'datashader')
             summary = data.get('summary', {})
             goal_dict = data.get('goal', {})
@@ -81,6 +128,32 @@ class CodeGenerationTool(BaseTool):
         except Exception as e:
             return str(e)
 
+    def _arun(self, inputs: str) -> str:
+        raise NotImplementedError("Async not implemented")
+class CodeValidationTool(BaseTool):
+    name: str = Field(default="code_validator")
+    description: str = Field(default="Validates Python visualization code")
+    
+    def _run(self, code: str) -> str:
+        try:
+            # Basic syntax check
+            compile(code, '<string>', 'exec')
+            
+            # Check required elements
+            if "def plot(data):" not in code:
+                return "Missing plot function definition"
+            if "return" not in code:
+                return "Missing return statement"
+                
+            return "Code validation passed"
+        except SyntaxError as e:
+            return f"Syntax error: {str(e)}"
+        except Exception as e:
+            return f"Validation error: {str(e)}"
+    
+    def _arun(self, code: str) -> str:
+        raise NotImplementedError("Async not implemented")
+
 class VizGenerator:
     def __init__(self, data=None, model_type: str = 'cohere', model_name: str = 'command-xlarge', api_key: str = None):
         self.model_type = model_type
@@ -90,48 +163,67 @@ class VizGenerator:
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # Initialize tokenizer
 
         self.text_gen = self._initialize_text_generator()
-        self.llm = TextGeneratorLLM(text_gen=self.text_gen, system_prompt=SYSTEM_INSTRUCTIONS)
-        self.tools = [CodeGenerationTool()]
+        
+        # Initialize with validated config
+        self.default_config = TextGenerationConfig(
+            temperature=0.1,
+            max_tokens=2000,  # Add reasonable default
+            stop=None
+        )
+        
+        self.llm = TextGeneratorLLM(
+            text_gen=self.text_gen, 
+            system_prompt=SYSTEM_INSTRUCTIONS,
+            config=self.default_config,
+            temperature=self.default_config.temperature,
+            max_tokens=self.default_config.max_tokens
+        )
+        
+        # Single validation tool
+        self.tools = [
+            CodeGenerationTool(),
+            CodeValidationTool(name="code_validator")
+        ]
+        
         self.memory = ConversationSummaryBufferMemory(llm=self.llm, memory_key="history", k=1, return_messages=True)
 
         self.prompt_template = PromptTemplate(
-    input_variables=["summary", "goal", "library", "history"],
+    input_variables=["input", "history", "library"],
     template=f"""
 {SYSTEM_INSTRUCTIONS}
 
-ADDITIONAL RULES:
+DATASET SUMMARY:
+{{{{input['summary']}}}}
 
-1) Do not rename the plot(data) function.
-2)Insert all necessary code (imports, plotting logic) directly into the code snippet.
-3) The code returned must be complete, executable, and contain no extra explanations or placeholders.
-4) Only use the {{library}} library for the visualization, do not switch to another library.
-5) Do not include any explanations or comments outside of the code.
-6) dont create any dataframes, use the data variable directly as its already loaded into 'data'.
+VISUALIZATION GOAL:
+{{{{input['goal']}}}}
 
-DATASET SUMMARY: {{summary}}
-
-VISUALIZATION GOAL: {{goal}}
+You must use the **{{library}}** library to generate the visualization.
 
 The data is already loaded into 'data'.
 
-Question: Please generate the visualization code now.
+**Question**: Please generate the visualization code now.
 
 {FORMAT_INSTRUCTIONS}
 
-{{history}} """.strip() )
+{{{{history}}}}
+""".strip()
+)
 
         self.viz_chain = self.prompt_template | self.llm
 
+        # Updated agent configuration
         self.agent = initialize_agent(
             tools=self.tools,
             llm=self.llm,
             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
             verbose=True,
-            #memory=self.memory,
-            max_iterations=1,
+            max_iterations=5,
             handle_parsing_errors=True,
+            early_stopping_method="generate",
             agent_kwargs={
-                "output_parser": CustomOutputParser(),
+                "output_parser": CustomOutputParser(self.tools),  # Pass tools here
+                "prompt": self.prompt_template,
             }
         )
 
@@ -149,65 +241,51 @@ Question: Please generate the visualization code now.
         return llm(**kwargs)
 
     def generate(self, summary, goal, library='seaborn', data=None, textgen_config=None):
-        if hasattr(summary, "to_dict"):
-            summary_dict = summary.to_dict()
-        else:
-            summary_dict = summary
-
-        if hasattr(goal, "to_dict"):
-            goal_dict = goal.to_dict()
-        else:
-            goal_dict = goal
-
-        summary_dict = self._prepare_summary(summary)
-        goal_dict = self._prepare_goal(goal)
-
-        if 'visualization' not in goal_dict or not goal_dict['visualization']:
-            goal_dict['visualization'] = goal_dict.get('question', '')
-
-        agent_input = {
-            "summary": summary_dict,
-            "goal": goal_dict,
-            "library": library,
-        }
-        
-        print("Agent Input JSON:", json.dumps(agent_input, indent=2))
-
-        if textgen_config:
-            self._update_llm_config(textgen_config)
-
-        if data is not None:
-            self.data = data
-
-        if self.data is not None:
-            if isinstance(self.data, dd.DataFrame) and library != 'datashader':
-                self.data = self.data.sample(frac=0.1).compute()
-        else:
-            raise ValueError("Data must be provided for visualization generation.")
-
-        memory_variables = self.memory.load_memory_variables({})
-        history = memory_variables.get("history", "")
-
-        prompt = self.prompt_template.format(
-            summary=json.dumps(summary_dict),
-            goal=json.dumps(goal_dict),
-            library=library,
-            history=history
-        )
-
-        # Truncate prompt if it exceeds the token limit
-        #max_tokens = 4081
-        #tokens = self.tokenizer.encode(prompt)
-        #if len(tokens) > max_tokens:
-           # prompt = self.tokenizer.decode(tokens[:max_tokens])
-
         try:
-            response = self.agent.run(json.dumps(agent_input))
-            code = clean_code_snippet(response)
-            return [code] if code else []
+            config = textgen_config or self.default_config
+            self._update_llm_config(config)
+            
+            # Prepare input without JSON conversion
+            agent_input = {
+                "input": {
+                    "summary": self._prepare_summary(summary),
+                    "goal": self._prepare_goal(goal),
+                    "library": library,
+                },
+                "history": self.memory.buffer,  # Include history if needed
+            }
+            
+            # Pass dict directly instead of JSON string
+            response = self.agent.run(agent_input)
+            
+            code = self._extract_code(response)
+            if not code:
+                raise ValueError("No valid code generated")
+                
+            validation = self.tools[1]._run(code)
+            if "passed" not in validation:
+                raise ValueError(f"Code validation failed: {validation}")
+                
+            return [code]
+            
         except Exception as e:
-            logger.error(f"Error generating visualization code: {e}")
-            raise
+            logger.error(f"Error in code generation: {str(e)}")
+            return []
+
+    def _extract_code(self, response: str) -> str:
+        """Extract and validate code from response"""
+        code_match = re.search(r"```python\s*(.*?)\s*```", response, re.DOTALL)
+        if code_match:
+            code = code_match.group(1)
+            if "def plot(data):" in code and "return" in code:
+                try:
+                    # Basic syntax check
+                    compile(code, '<string>', 'exec')
+                    return clean_code_snippet(code)
+                except SyntaxError:
+                    logger.error("Generated code has a syntax error.")
+                    return ""
+        return ""
 
     def _prepare_summary(self, summary):
         if isinstance(summary, dict):
