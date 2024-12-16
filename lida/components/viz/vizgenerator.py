@@ -5,7 +5,7 @@ import pandas as pd
 from typing import List, Dict, Optional, Union, Any
 import re
 from dataclasses import asdict
-
+from pydantic import PrivateAttr, Field
 from langchain import PromptTemplate
 from langchain.agents import AgentType, initialize_agent, Tool
 from langchain.agents.agent import AgentOutputParser
@@ -50,31 +50,17 @@ def plot(data):
     return visualization_object
 """
 
-# Update CustomOutputParser to accept tools
 class CustomOutputParser(AgentOutputParser):
+    _tools: List[BaseTool] = PrivateAttr()
+
     def __init__(self, tools: List[BaseTool]):
-        self.tools = tools
+        super().__init__()
+        self._tools = tools
 
     def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
-        # Clean and standardize output
         cleaned_output = llm_output.strip()
 
-        # Check for action format
-        if "Action:" in cleaned_output:
-            match = re.search(r"Action:\s*(.*?)\nAction Input:\s*(.*)", cleaned_output, re.DOTALL)
-            if match:
-                # Normalize action name
-                action_name = match.group(1).strip().lower().replace(' ', '_')
-                # Check if action_name exists in tools
-                if action_name not in [tool.name for tool in self.tools]:
-                    raise OutputParserException(f"Invalid tool name: {action_name}")
-                return AgentAction(
-                    tool=action_name,
-                    tool_input=match.group(2).strip(),
-                    log=llm_output
-                )
-
-        # Existing code for code block extraction
+        # Check for code block first
         if "```python" in cleaned_output:
             code_block = self._extract_code_block(cleaned_output)
             if code_block:
@@ -82,7 +68,22 @@ class CustomOutputParser(AgentOutputParser):
                     return_values={"output": code_block},
                     log=llm_output
                 )
-                
+
+        # Then check for action
+        if "Action:" in cleaned_output:
+            match = re.search(r"Action:\s*(.*?)\nAction Input:\s*(.*)", cleaned_output, re.DOTALL)
+            if match:
+                action_name = match.group(1).strip().lower().replace(' ', '_')
+
+                # Use self._tools instead of self.tools
+                if action_name not in [tool.name for tool in self._tools]:
+                    raise OutputParserException(f"Invalid tool name: {action_name}")
+                return AgentAction(
+                    tool=action_name,
+                    tool_input=match.group(2).strip(),
+                    log=llm_output
+                )
+
         raise OutputParserException("Invalid output format")
 
     def _extract_code_block(self, text: str) -> str:
@@ -98,19 +99,19 @@ class CodeGenerationTool(BaseTool):
 
     def _run(self, inputs: Union[str, dict], **kwargs: Any) -> str:
         try:
-            # Handle both string and dict inputs
             if isinstance(inputs, str):
-                try:
-                    data = json.loads(inputs)
-                except json.JSONDecodeError:
-                    data = {"library": "seaborn", "summary": {}, "goal": {}}
-            else:
+                # Parse the JSON string
+                data = json.loads(inputs)
+            elif isinstance(inputs, dict):
                 data = inputs
+            else:
+                return "Invalid input format"
 
-            library = data.get('library', 'datashader')
+            library = data.get('library', 'seaborn')
             summary = data.get('summary', {})
             goal_dict = data.get('goal', {})
-
+  
+            # Ensure goal_dict has all required fields
             goal_dict.setdefault("question", "")
             goal_dict.setdefault("visualization", "")
             goal_dict.setdefault("rationale", "")
@@ -125,9 +126,11 @@ class CodeGenerationTool(BaseTool):
             scaffold = ChartScaffold()
             template = scaffold.get_template(goal, library)
             return template
+        except json.JSONDecodeError as e:
+            return f"JSON decode error: {str(e)}"
         except Exception as e:
             return str(e)
-
+        
     def _arun(self, inputs: str) -> str:
         raise NotImplementedError("Async not implemented")
 class CodeValidationTool(BaseTool):
@@ -185,28 +188,28 @@ class VizGenerator:
             CodeValidationTool(name="code_validator")
         ]
         
-        self.memory = ConversationSummaryBufferMemory(llm=self.llm, memory_key="history", k=1, return_messages=True)
+        self.memory = ConversationSummaryBufferMemory(llm=self.llm, memory_key="history", k=0, return_messages=True)
 
         self.prompt_template = PromptTemplate(
-    input_variables=["input", "history", "library"],
-    template=f"""
-{SYSTEM_INSTRUCTIONS}
+    input_variables=["input"],
+    template="""
+You are an experienced data visualization developer.
+
+Use ONLY the existing 'data' variable.
+Do NOT load or create new data.
+Use the specified visualization library: {input['library']}.
 
 DATASET SUMMARY:
-{{{{input['summary']}}}}
+{input['summary']}
 
 VISUALIZATION GOAL:
-{{{{input['goal']}}}}
+{input['goal']}
 
-You must use the **{{library}}** library to generate the visualization.
+Generate the visualization code now.
 
-The data is already loaded into 'data'.
-
-**Question**: Please generate the visualization code now.
-
-{FORMAT_INSTRUCTIONS}
-
-{{{{history}}}}
+def plot(data):
+    # Your visualization code here
+    return visualization_object
 """.strip()
 )
 
@@ -220,9 +223,9 @@ The data is already loaded into 'data'.
             verbose=True,
             max_iterations=5,
             handle_parsing_errors=True,
-            early_stopping_method="generate",
+            early_stopping_method="force",  # Changed from "generate" to "force"
             agent_kwargs={
-                "output_parser": CustomOutputParser(self.tools),  # Pass tools here
+                "output_parser": CustomOutputParser(self.tools),
                 "prompt": self.prompt_template,
             }
         )
@@ -245,17 +248,13 @@ The data is already loaded into 'data'.
             config = textgen_config or self.default_config
             self._update_llm_config(config)
             
-            # Prepare input without JSON conversion
-            agent_input = {
-                "input": {
-                    "summary": self._prepare_summary(summary),
-                    "goal": self._prepare_goal(goal),
-                    "library": library,
-                },
-                "history": self.memory.buffer,  # Include history if needed
-            }
-            
-            # Pass dict directly instead of JSON string
+            # Serialize 'input' to JSON string
+            agent_input = json.dumps({
+                "summary": self._prepare_summary(summary),
+                "goal": self._prepare_goal(goal),
+                "library": library,
+            })
+
             response = self.agent.run(agent_input)
             
             code = self._extract_code(response)
@@ -263,25 +262,28 @@ The data is already loaded into 'data'.
                 raise ValueError("No valid code generated")
                 
             validation = self.tools[1]._run(code)
-            if "passed" not in validation:
+            if "passed" not in validation.lower():
                 raise ValueError(f"Code validation failed: {validation}")
                 
             return [code]
             
         except Exception as e:
-            logger.error(f"Error in code generation: {str(e)}")
+            logger.error(f"Error in code generation: {str(e)}", exc_info=True)
             return []
 
     def _extract_code(self, response: str) -> str:
         """Extract and validate code from response"""
-        code_match = re.search(r"```python\s*(.*?)\s*```", response, re.DOTALL)
+        # Updated regex to match code blocks with or without 'python'
+        code_match = re.search(r"```(?:python)?\s*(.*?)\s*```", response, re.DOTALL)
         if code_match:
             code = code_match.group(1)
             if "def plot(data):" in code and "return" in code:
                 try:
                     # Basic syntax check
                     compile(code, '<string>', 'exec')
-                    return clean_code_snippet(code)
+                    # Clean the code to remove any code block markers
+                    code = clean_code_snippet(code)
+                    return code
                 except SyntaxError:
                     logger.error("Generated code has a syntax error.")
                     return ""
