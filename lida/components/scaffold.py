@@ -64,7 +64,8 @@ def plot(data):
     # plt.ylabel('{y_axis}')
     # plt.title('{goal.question}', wrap=True)
     return plt
-
+    
+#always type the below line at the end of the code
 chart = plot(data)
 """
         elif library == "seaborn":
@@ -84,6 +85,7 @@ def plot(data):
     # plt.title('{goal.question}', wrap=True)
     return plt
 
+#always type the below line at the end of the code
 chart = plot(data)
 """
         elif library == "ggplot":
@@ -99,6 +101,7 @@ def plot(data):
     # chart = (p9.ggplot(data, p9.aes(x='{x_axis}', y='{y_axis}')) + p9.geom_point())
     return chart
 
+#always type the below line at the end of the code
 chart = plot(data)
 """
         elif library == "altair":
@@ -117,6 +120,7 @@ def plot(data):
     # )
     return chart
 
+#always type the below line at the end of the code
 chart = plot(data)
 """
         elif library == "plotly":
@@ -131,7 +135,8 @@ def plot(data):
     # Insert plotting code below. Example:
     # fig = px.scatter(data, x='{x_axis}', y='{y_axis}')
     return fig
-
+    
+#always type the below line at the end of the code
 chart = plot(data)
 """
         elif library == "datashader":
@@ -144,13 +149,14 @@ from colorcet import fire  # Optional color map
 
 def plot(data):
     if isinstance(data, dd.DataFrame):
-        data = data.sample(frac=0.1, random_state=42).compute()
+        data = data.compute()
     # Insert plotting code below. Example:
     canvas = ds.Canvas(plot_width=800, plot_height=600)
     agg = canvas.points(data, '{x_axis}', '{y_axis}')
     img = tf.shade(agg, cmap=fire)
     return img
 
+#always type the below line at the end of the code
 chart = plot(data) 
 """
             return template

@@ -11,7 +11,7 @@ from lida.utils import read_dataframe
 from .summarizer import Summarizer # Relative import
 from .goal import GoalExplorer
 from .persona import PersonaExplorer
-from .executor import ChartExecutor
+from .executor import ChartExecutor  # Updated import
 from .viz import VizGenerator, VizEditor, VizExplainer, VizEvaluator, VizRepairer, VizRecommender
 
 import lida.web as lida
@@ -47,7 +47,7 @@ class Manager:
         self.evaluator = VizEvaluator()
         self.repairer = VizRepairer()
         self.recommender = VizRecommender()
-        self.executor = ChartExecutor()
+        self.executor = ChartExecutor()  # Use ChartExecutor directly
 
         # Placeholder attributes
         self.data = None
@@ -127,19 +127,8 @@ class Manager:
         library: str = "seaborn",
         return_error: bool = False,
     ):
-        """
-        Generate visualization code based on summary and goal.
-
-        Args:
-            summary (Union[dict, Summary]): Summary of the dataset.
-            goal (Union[dict, Goal]): Goal for visualization.
-            textgen_config (TextGenerationConfig, optional): Configuration for text generation.
-            library (str, optional): Visualization library to use. Defaults to "seaborn".
-            return_error (bool, optional): Whether to return errors. Defaults to False.
-
-        Returns:
-            Any: The generated visualization or error.
-        """
+        """Generate and execute visualization code"""
+        # Convert inputs to proper types
         if isinstance(goal, dict):
             goal = Goal(**goal)
         if isinstance(goal, str):
@@ -147,27 +136,23 @@ class Manager:
         if isinstance(summary, Summary):
             summary = asdict(summary)
         
-        if isinstance(goal, Goal):
-            # Ensure 'visualization' attribute is present
-            if not goal.visualization:
-                goal.visualization = goal.question  # Use 'question' if 'visualization' is missing
-            goal = asdict(goal)
-        
+        # Generate code first using VizGenerator
         code_specs = self.vizgen.generate(
             summary=summary,
             goal=goal,
-            library=library,
             textgen_config=textgen_config,
-            data=data  # Add this line to pass data
+            library=library
         )
         
-        return self.execute(
+        # Then execute the generated code
+        charts = self.executor.execute(
             code_specs=code_specs,
-            data=data,  # Change this line to pass data
+            data=data,
             summary=summary,
             library=library,
-            return_error=return_error,
+            return_error=return_error
         )
+        return charts
 
     def execute(
         self,

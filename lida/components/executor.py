@@ -5,7 +5,8 @@ import io
 import os
 import re
 import traceback
-from typing import Any, List, Union
+import logging
+from typing import Any, List, Union, Dict
 import datashader as ds
 import datashader.transfer_functions as tf
 import matplotlib.pyplot as plt
@@ -13,254 +14,277 @@ import pandas as pd
 import plotly.io as pio
 import dask.dataframe as dd
 from colorcet import fire
-from lida.datamodel import ChartExecutorResponse, Summary
+from lida.datamodel import ChartExecutorResponse, Summary, Goal
 import numpy as np
-import ast
+from .viz.vizgenerator import VizGenerator
+from .agent.code_repair_agent import CodeRepairAgent
+from llmx import llm
+from lida.datamodel import TextGenerationConfig
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.ERROR)
+
 def preprocess_code(code: str) -> str:
+    """Clean and validate code string"""
     if not code or not isinstance(code, str):
         return ""
     
-    # Standardize code format
-    if "```python" in code:
-        code = re.search(r"```python\s*(.*?)\s*```", code, re.DOTALL)
-        code = code.group(1) if code else ""
+    # Remove markdown code block syntax if present
+    if "```" in code:
+        pattern = r"```(?:python)?\s*(.*?)\s*```"
+        match = re.search(pattern, code, re.DOTALL)
+        if match:
+            code = match.group(1)
     
-    # Ensure plot function exists
+    code = str(code).strip()
+    
+    # Validate basic structure
     if "def plot(data):" not in code:
         return ""
         
-    return code.strip()
-
+    return code
 
 def get_globals_dict(code_string, data):
-    # Ensure code_string is a valid string
+    """Set up execution environment with necessary modules"""
     if not code_string or not isinstance(code_string, str):
-        print("Error: code_string is invalid.")
         return {}
     
-    # Parse the code string into an AST
+    globals_dict = {
+        'pd': pd,
+        'np': np,
+        'plt': plt,
+        'ds': ds,
+        'tf': tf,
+        'dd': dd,
+        'data': data,
+        'is_numeric_dtype': pd.api.types.is_numeric_dtype,
+        'is_string_dtype': pd.api.types.is_string_dtype,
+    }
+    
+    # Add any additional modules from imports in code
     try:
         tree = ast.parse(code_string)
-    except SyntaxError as e:
-        print("Syntax error when parsing code_string:", e)
-        print("Code with syntax error:")
-        print(code_string)
-        return {}
-    # Extract the names of the imported modules and their aliases
-    imported_modules = []
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                module = importlib.import_module(alias.name)
-                imported_modules.append((alias.name, alias.asname, module))
-        elif isinstance(node, ast.ImportFrom):
-            module = importlib.import_module(node.module)
-            for alias in node.names:
-                obj = getattr(module, alias.name)
-                imported_modules.append(
-                    (f"{node.module}.{alias.name}", alias.asname, obj)
-                )
-
-    # Import the required modules into a dictionary
-    globals_dict = {}
-    for module_name, alias, obj in imported_modules:
-        if alias:
-            globals_dict[alias] = obj
-        else:
-            globals_dict[module_name.split(".")[-1]] = obj
-
-    ex_dicts = {"pd": pd, "data": data, "plt": plt ,'np' : np , 'ds' : ds ,'tf' : tf,'is_numeric_dtype': pd.api.types.is_numeric_dtype,
-        'is_string_dtype': pd.api.types.is_string_dtype,}
-    globals_dict.update(ex_dicts)
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    try:
+                        module = importlib.import_module(alias.name)
+                        globals_dict[alias.asname or alias.name] = module
+                    except ImportError:
+                        continue
+    except SyntaxError:
+        pass
+        
     return globals_dict
-
 
 class ChartExecutor:
     """Execute code and return chart object"""
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self):
+        self.viz_generator = VizGenerator()
+        self.code_repair_agent = CodeRepairAgent(
+            text_gen=llm,
+            textgen_config=TextGenerationConfig()
+        )
+        self.debug = True  # Add debug flag
 
     def execute(
         self,
-        code_specs: List[str],
+        code_specs: Union[List[str], str],
         data: Any,
         summary: Union[dict, Summary],
-        library="altair",
+        library: str = "seaborn",
         return_error: bool = False,
-    ) -> Any:
-        """Validate and convert code"""
+    ) -> List[ChartExecutorResponse]:
+        """
+        Execute visualization code and return chart response.
 
-        if isinstance(summary, dict):
-            summary = Summary(**summary)
+        Args:
+            code_specs: Code to execute (string or list of strings)
+            data: Data to visualize
+            summary: Dataset summary
+            library: Visualization library to use
+            return_error: Whether to return error details
+        """
+        try:
+            # Normalize code_specs to list
+            if isinstance(code_specs, str):
+                code_specs = [code_specs]
+            elif isinstance(code_specs, list) and len(code_specs) > 0:
+                if isinstance(code_specs[0], list):
+                    code_specs = code_specs[0]
+                elif isinstance(code_specs[0], dict) and 'content' in code_specs[0]:
+                    code_specs = [spec['content'] for spec in code_specs]
 
-        charts = []
-        code_spec_copy = code_specs.copy()
-        code_specs = [preprocess_code(code) for code in code_specs]
+            # Ensure summary is proper type
+            if isinstance(summary, dict):
+                summary = Summary(**summary)
 
-        # Libraries that require Pandas DataFrames
-        if library in ["matplotlib", "seaborn", "plotly", "ggplot", "altair"]:
-            for code in code_specs:
-                try:
-                    # Prepare data for execution
-                    if isinstance(data, dd.DataFrame):
-                        print("Data is a Dask DataFrame. Sampling and computing for execution.")
-                        sample_fraction = 0.1  # Adjust as needed
-                        data_for_execution = data.sample(frac=sample_fraction, random_state=42).compute()
-                    else:
-                        data_for_execution = data
-
-                    # Prepare the execution environment
-                    ex_globals = get_globals_dict(code, data_for_execution)
-                    exec(code, ex_globals)
-                    chart = ex_globals.get("chart") or ex_globals.get("fig")
-
-                    # Handle the chart based on the library
-                    if library in ["matplotlib", "seaborn"]:
-                        # Generate raster image
-                        buf = io.BytesIO()
-                        plt.box(False)
-                        plt.grid(color="lightgray", linestyle="dashed", zorder=-10)
-                        plt.savefig(buf, format="png", dpi=100, pad_inches=0.2)
-                        buf.seek(0)
-                        plot_data = base64.b64encode(buf.read()).decode("ascii")
-                        plt.close()
-                        charts.append(
-                            ChartExecutorResponse(
-                                spec=None,
-                                status=True,
-                                raster=plot_data,
-                                code=code,
-                                library=library,
-                            )
-                        )
-                    elif library == "plotly":
-                        chart_bytes = pio.to_image(chart, format='png')
-                        plot_data = base64.b64encode(chart_bytes).decode('utf-8')
-                        charts.append(
-                            ChartExecutorResponse(
-                                spec=None,
-                                status=True,
-                                raster=plot_data,
-                                code=code,
-                                library=library,
-                            )
-                        )
-                    elif library == "ggplot":
-                        buf = io.BytesIO()
-                        chart.save(buf, format="png")
-                        plot_data = base64.b64encode(buf.getvalue()).decode("utf-8")
-                        charts.append(
-                            ChartExecutorResponse(
-                                spec=None,
-                                status=True,
-                                raster=plot_data,
-                                code=code,
-                                library=library,
-                            )
-                        )
-                    elif library == "altair":
-                        vega_spec = chart.to_dict()
-                        del vega_spec["data"]
-                        if "datasets" in vega_spec:
-                            del vega_spec["datasets"]
-                        vega_spec["data"] = {"url": f"/files/data/{summary.file_name}"}
-                        charts.append(
-                            ChartExecutorResponse(
-                                spec=vega_spec,
-                                status=True,
-                                raster=None,
-                                code=code,
-                                library=library,
-                            )
-                        )
-                except Exception as exception_error:
-                    print("Error during execution:", exception_error)
-                    if return_error:
-                        charts.append(
-                            ChartExecutorResponse(
-                                spec=None,
-                                status=False,
-                                raster=None,
-                                code=code,
-                                library=library,
-                                error={
-                                    "message": str(exception_error),
-                                    "traceback": traceback.format_exc(),
-                                },
-                            )
-                        )
-            return charts
-
-        # Handle Datashader separately
-        elif library == "datashader":
             charts = []
+            
+            # Process each code spec
             for code in code_specs:
-                code = preprocess_code(code)
-                if not code:
-                    continue  # Skip invalid code
-
                 try:
-                    # Prepare data for execution
-                    if isinstance(data, dd.DataFrame):
-                        data_for_execution = data  # Datashader can work with Dask DataFrames
-                    else:
+                    # Clean and validate code
+                    processed_code = preprocess_code(code)
+                    if not processed_code:
+                        continue
+
+                    logger.info(f"Processing code for {library}:")
+                    logger.info(f"Original code:\n{code}")
+
+                    # Special handling for datashader library
+                    if library == "datashader":
+                        # Keep data as Dask DataFrame if it is one
                         data_for_execution = data
+                        
+                        # Modify code to handle array comparisons
+                        processed_code = processed_code.replace(
+                            "if isinstance(data, dd.DataFrame):",
+                            "if hasattr(data, 'compute'):"
+                        )
+                        
+                        # Set up minimal globals for datashader
+                        globals_dict = {
+                            '__builtins__': __builtins__,
+                            'data': data_for_execution,
+                            'ds': ds,
+                            'tf': tf,
+                            'np': np,
+                            'pd': pd,
+                            'dd': dd,
+                            'fire': fire
+                        }
 
-                    # Prepare the execution environment
-                    ex_globals = {
-                        '__builtins__': __builtins__,
-                        'data': data_for_execution,
-                        'ds': ds,
-                        'tf': tf,
-                        'np': np,
-                        'pd': pd,
-                        'dd': dd,
-                    }
+                        # Execute with numpy error handling
+                        with np.errstate(all='ignore'):
+                            exec(processed_code, globals_dict)
+                            
+                        img = globals_dict.get("chart")
+                        if img is None:
+                            raise ValueError("No chart object was created")
 
-                    # Execute the generated code
-                    exec(code, ex_globals)
-                    img = ex_globals.get("chart")
-
-                    if img is None:
-                        raise ValueError("No chart object was created")
-
-                    # Convert Datashader image to PNG bytes
-                    buf = io.BytesIO()
-                    img.to_pil().save(buf, format='PNG')
-                    buf.seek(0)
-                    plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
-
-                    # Return the result
-                    charts.append(
-                        ChartExecutorResponse(
+                        # Convert to PNG
+                        buf = io.BytesIO()
+                        img.to_pil().save(buf, format='PNG')
+                        buf.seek(0)
+                        plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
+                        
+                        charts.append(ChartExecutorResponse(
                             spec=None,
                             status=True,
                             raster=plot_data,
-                            code=code,
+                            code=processed_code,
                             library=library,
-                        )
-                    )
+                        ))
+                        
+                    else:
+                        # Existing handling for other libraries
+                        # Try to repair code first
+                        try:
+                            logger.info("Attempting code repair...")
+                            repaired_code = self.code_repair_agent.repair(processed_code)
+                            if repaired_code != processed_code:
+                                logger.info("Code was repaired!")
+                                logger.info(f"Repaired code:\n{repaired_code}")
+                                processed_code = repaired_code
+                            else:
+                                logger.info("No repairs needed")
+                        except Exception as repair_error:
+                            logger.warning(f"Code repair failed: {repair_error}")
+                            # Continue with original code if repair fails
 
-                except Exception as exception_error:
-                    print("Error in Datashader plot generation:", exception_error)
+                        # Prepare data
+                        if isinstance(data, dd.DataFrame):
+                            data_for_execution = data.compute() if library != "datashader" else data
+                        else:
+                            data_for_execution = data
+
+                        # Set up execution environment
+                        globals_dict = get_globals_dict(processed_code, data_for_execution)
+                        
+                        # Execute code with error handling for numpy comparisons
+                        try:
+                            with np.errstate(all='ignore'):  # Suppress numpy warnings
+                                exec(processed_code, globals_dict)
+                        except ValueError as ve:
+                            if "truth value of an array" in str(ve):
+                                # Modify code to handle array comparisons
+                                processed_code = processed_code.replace(" == ", ".equals(")
+                                processed_code = processed_code.replace(" != ", ".ne(")
+                                exec(processed_code, globals_dict)
+                        
+                        chart = globals_dict.get("chart") or globals_dict.get("fig")
+                        if chart is None:
+                            raise ValueError("No chart object was created")
+
+                        # Convert chart based on library
+                        if library in ["matplotlib", "seaborn"]:
+                            buf = io.BytesIO()
+                            plt.savefig(buf, format="png", dpi=100, bbox_inches='tight')
+                            buf.seek(0)
+                            plot_data = base64.b64encode(buf.read()).decode("ascii")
+                            plt.close()
+                            charts.append(ChartExecutorResponse(
+                                spec=None, status=True, raster=plot_data,
+                                code=processed_code, library=library
+                            ))
+                        elif library == "plotly":
+                            chart_bytes = pio.to_image(chart, format='png')
+                            plot_data = base64.b64encode(chart_bytes).decode('utf-8')
+                            charts.append(ChartExecutorResponse(
+                                spec=None, status=True, raster=plot_data,
+                                code=processed_code, library=library
+                            ))
+                        elif library == "altair":
+                            vega_spec = chart.to_dict()
+                            if "data" in vega_spec:
+                                del vega_spec["data"]
+                            if "datasets" in vega_spec:
+                                del vega_spec["datasets"]
+                            vega_spec["data"] = {"url": f"/files/data/{summary.file_name}"}
+                            charts.append(ChartExecutorResponse(
+                                spec=vega_spec, status=True, raster=None,
+                                code=processed_code, library=library
+                            ))
+                        elif library == "datashader":
+                            buf = io.BytesIO()
+                            chart.to_pil().save(buf, format='PNG')
+                            buf.seek(0)
+                            plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
+                            charts.append(ChartExecutorResponse(
+                                spec=None, status=True, raster=plot_data,
+                                code=processed_code, library=library
+                            ))
+
+                except Exception as e:
+                    logger.error(f"Error executing code: {str(e)}")
+                    logger.error(f"Code that caused error:\n{processed_code}")
                     if return_error:
-                        charts.append(
-                            ChartExecutorResponse(
-                                spec=None,
-                                status=False,
-                                raster=None,
-                                code=code,
-                                library=library,
-                                error={
-                                    "message": str(exception_error),
-                                    "traceback": traceback.format_exc(),
-                                },
-                            )
-                        )
+                        charts.append(ChartExecutorResponse(
+                            spec=None,
+                            status=False,
+                            raster=None,
+                            code=processed_code,
+                            library=library,
+                            error={
+                                "message": str(e),
+                                "traceback": traceback.format_exc()
+                            }
+                        ))
+
             return charts
 
-        else:
-            raise Exception(
-                f"Unsupported library. Supported libraries are altair, matplotlib, seaborn, ggplot, plotly, datashader. You provided {library}"
-            )
+        except Exception as e:
+            logger.error(f"Error in execute: {str(e)}")
+            if return_error:
+                return [ChartExecutorResponse(
+                    spec=None,
+                    status=False,
+                    raster=None,
+                    code=str(code_specs),
+                    library=library,
+                    error={"message": str(e), "traceback": traceback.format_exc()}
+                )]
+            return []
+
