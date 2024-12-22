@@ -125,7 +125,10 @@ class ChartExecutor:
             # Process each code spec
             for code in code_specs:
                 try:
-                    # Clean and validate code
+                    logger.info("\n" + "=" * 50)
+                    logger.info("EXECUTING VISUALIZATION CODE")
+                    logger.info("=" * 50)
+                    
                     processed_code = preprocess_code(code)
                     if not processed_code:
                         continue
@@ -182,16 +185,22 @@ class ChartExecutor:
                         # Existing handling for other libraries
                         # Try to repair code first
                         try:
-                            logger.info("Attempting code repair...")
+                            logger.info("\nSTARTING CODE REPAIR")
+                            logger.info("-" * 30)
                             repaired_code = self.code_repair_agent.repair(processed_code)
+                            
                             if repaired_code != processed_code:
-                                logger.info("Code was repaired!")
-                                logger.info(f"Repaired code:\n{repaired_code}")
+                                logger.info("\n✨ CODE WAS REPAIRED!")
+                                logger.info("Original code:")
+                                logger.info(processed_code)
+                                logger.info("\nRepaired code:")
+                                logger.info(repaired_code)
                                 processed_code = repaired_code
                             else:
-                                logger.info("No repairs needed")
+                                logger.info("✅ No repairs needed")
+                                
                         except Exception as repair_error:
-                            logger.warning(f"Code repair failed: {repair_error}")
+                            logger.warning(f"❌ Code repair failed: {repair_error}")
                             # Continue with original code if repair fails
 
                         # Prepare data
@@ -287,4 +296,3 @@ class ChartExecutor:
                     error={"message": str(e), "traceback": traceback.format_exc()}
                 )]
             return []
-

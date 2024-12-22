@@ -216,7 +216,7 @@ def cache_request(cache: Cache, params: Any, values: Any = None) -> Any:
 def clean_code_snippet(code_string):
     # Extract code snippet using regex
     cleaned_snippet = re.search(r'```(?:\w+)?\s*([\s\S]*?)\s*```', code_string)
-
+    
     if cleaned_snippet:
         cleaned_snippet = cleaned_snippet.group(1)
     else:
