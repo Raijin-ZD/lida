@@ -120,13 +120,8 @@ class ChartExecutor:
         if library in ["matplotlib", "seaborn", "plotly", "ggplot", "altair"]:
             for code in code_specs:
                 try:
-                    # Prepare data for execution
-                    if isinstance(data, dd.DataFrame):
-                        print("Data is a Dask DataFrame. Sampling and computing for execution.")
-                        sample_fraction = 0.1  # Adjust as needed
-                        data_for_execution = data.sample(frac=sample_fraction, random_state=42).compute()
-                    else:
-                        data_for_execution = data
+                    
+                    data_for_execution = data
 
                     # Prepare the execution environment
                     ex_globals = get_globals_dict(code, data_for_execution)

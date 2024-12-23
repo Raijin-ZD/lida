@@ -133,15 +133,24 @@ class ChartExecutor:
                     if not processed_code:
                         continue
 
-                    logger.info(f"Processing code for {library}:")
-                    logger.info(f"Original code:\n{code}")
+                    # Always attempt code repair first
+                    logger.info("\nSTARTING CODE REPAIR")
+                    logger.info("-" * 30)
+                    repaired_code = self.code_repair_agent.repair(processed_code)
+                    
+                    if repaired_code != processed_code:
+                        logger.info("\n✨ CODE WAS REPAIRED!")
+                        logger.info("Original code:")
+                        logger.info(processed_code)
+                        logger.info("\nRepaired code:")
+                        logger.info(repaired_code)
+                        processed_code = repaired_code
+                    else:
+                        logger.info("✅ No repairs needed")
 
-                    # Special handling for datashader library
+                    # Then handle library-specific execution
                     if library == "datashader":
-                        # Keep data as Dask DataFrame if it is one
                         data_for_execution = data
-                        
-                        # Modify code to handle array comparisons
                         processed_code = processed_code.replace(
                             "if isinstance(data, dd.DataFrame):",
                             "if hasattr(data, 'compute'):"
@@ -204,10 +213,10 @@ class ChartExecutor:
                             # Continue with original code if repair fails
 
                         # Prepare data
-                        if isinstance(data, dd.DataFrame):
-                            data_for_execution = data.compute() if library != "datashader" else data
-                        else:
-                            data_for_execution = data
+                        #if isinstance(data, dd.DataFrame):
+                            #data_for_execution = data.compute() if library != "datashader" else data
+                        #else:
+                        data_for_execution = data
 
                         # Set up execution environment
                         globals_dict = get_globals_dict(processed_code, data_for_execution)
