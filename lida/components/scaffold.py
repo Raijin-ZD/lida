@@ -143,21 +143,36 @@ chart = plot(data)
             template = f"""
 import datashader as ds
 import datashader.transfer_functions as tf
+import holoviews as hv
+from holoviews.operation.datashader import datashade, shade
 import pandas as pd
 import dask.dataframe as dd
-from colorcet import fire  # Optional color map
+from colorcet import fire
+hv.extension('bokeh')
 
 def plot(data):
     if isinstance(data, dd.DataFrame):
         data = data.compute()
-    # Insert plotting code below. Example:
-    canvas = ds.Canvas(plot_width=800, plot_height=600)
-    agg = canvas.points(data, '{x_axis}', '{y_axis}')
-    img = tf.shade(agg, cmap=fire)
-    return img
+    
+    # Create points plot with HoloViews
+    points = hv.Points(data, kdims=['{x_axis}', '{y_axis}'])
+    
+    # Apply datashader to the points
+    shaded = datashade(points, cmap=fire)
+    
+    # Add title and axis labels
+    plot = shaded.opts(
+        title='{goal.question}',
+        xlabel='{x_axis}',
+        ylabel='{y_axis}',
+        width=800, height=600,
+        tools=['hover']
+    )
+    
+    return hv.render(plot)
 
 #always type the below line at the end of the code
-chart = plot(data) 
+chart = plot(data)
 """
             return template
         else:
