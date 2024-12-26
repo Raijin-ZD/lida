@@ -21,7 +21,7 @@ logger = logging.getLogger("lida")
 print("manager.py is being imported with summary update")  # to see if it's updated
 
 class Manager:
-    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge', api_key: str = None, **kwargs):
+    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge', api_key: str = "KYS55qCMzJTRg1dbNJxnkEsv5YQp2WQM8jjR6UEm", **kwargs):
         """
         Initialize the Manager with specified model configuration and other components.
 

@@ -57,13 +57,8 @@ class RuleBasedRepair:
         if "chart = plot(data)" not in code:
             issues.append("Missing chart = plot(data) assignment")
             
-        # Rule 4: Check for Dask DataFrame handling if not datashader
-        if "datashader" not in code:
-            dask_check = "if isinstance(data, dd.DataFrame):\n        data = data.sample(frac=0.1, random_state=42).compute()"
-            if dask_check not in code:
-                issues.append("Missing Dask DataFrame handling")
         
-        # Rule 5: Check syntax
+        # Rule 4: Check syntax
         try:
             ast.parse(code)
         except SyntaxError as e:
@@ -106,10 +101,6 @@ class RuleBasedRepair:
         if "datashader" not in '\n'.join(code_lines):
             plot_idx = next((i for i, line in enumerate(code_lines) 
                            if line.strip().startswith('def plot(data):')), -1)
-            if plot_idx >= 0:
-                code_lines.insert(plot_idx + 1, 
-                    "    if isinstance(data, dd.DataFrame):\n        data = data.sample(frac=0.1, random_state=42).compute()")
-                fixed_issues.append("Added Dask DataFrame handling")
         
         # Ensure chart assignment exists
         if not any('chart = plot(data)' in line for line in code_lines):
@@ -126,106 +117,108 @@ class RuleBasedRepair:
             return code, False, ["Syntax error could not be fixed with rules"]
 
 class CodeRepairAgent:
-    """Hybrid code repair agent using rules first, then LangChain."""
-    
     def __init__(self, text_gen: TextGenerator, textgen_config: TextGenerationConfig):
         self.rule_based = RuleBasedRepair()
         
-        prompt_template = """Fix this Python visualization code. Keep all imports and maintain code structure.
-        The fixed code must have:
-        1. All required imports (pandas, matplotlib, dask)
-        2. A plot(data) function
-        3. Dask DataFrame handling
-        4. chart = plot(data) assignment
-        
-        Code to fix:
-        {code}
-        
-        Return only the fixed code without any comments or explanations."""
-        
-        self.chain = LLMChain(
-            llm=TextGeneratorLLM(
-                text_gen=text_gen,
-                system_prompt="You are a Python code repair expert. Fix code while preserving structure and imports.",
-                temperature=textgen_config.temperature,
-                max_tokens=textgen_config.max_tokens,
+        # Define tools for code repair
+        self.tools = [
+            Tool(
+                name="fix_syntax",
+                func=self._fix_syntax_errors,
+                description="Fix Python syntax errors in code"
             ),
-            prompt=PromptTemplate(
-                input_variables=["code"],
-                template=prompt_template
+            Tool(
+                name="validate_structure",
+                func=self._validate_code_structure,
+                description="Check if code has required plot function and chart assignment"
+            ),
+            Tool(
+                name="clean_code",
+                func=self._clean_code,
+                description="Remove unnecessary comments and clean code formatting"
             )
+        ]
+
+        # Create agent prompt
+        prompt = ZeroShotAgent.create_prompt(
+            tools=self.tools,
+            prefix="""You are a Python code repair expert. Fix visualization code while preserving structure.
+            The code must have:
+            1. Valid Python syntax
+            2. plot(data) function
+            3. chart = plot(data) assignment
+            
+            Analyze the code and use available tools to fix issues.""",
+            suffix="Code: {input}\nThought: Let's approach this step by step.",
+            input_variables=["input"]
         )
 
-    def _clean_langchain_output(self, output: str) -> str:
-        """Clean and extract code from LangChain output."""
-        if not output:
-            return ""
-            
-        # Remove markdown code blocks if present
-        if "```" in output:
-            pattern = r"```(?:python)?\s*(.*?)\s*```"
-            matches = re.findall(pattern, output, re.DOTALL)
-            if matches:
-                output = matches[0]
-        
-        # Remove any comments
-        output = re.sub(r'#.*$', '', output, flags=re.MULTILINE)
-        
-        # Remove extra whitespace and blank lines
-        output = '\n'.join(line for line in output.split('\n') if line.strip())
-        
-        # Extract just the code if there's any text before/after
-        if 'def plot(data):' in output:
-            code_start = output.find('import ') if 'import ' in output else output.find('def plot')
-            code_end = output.rfind('chart = plot(data)') + len('chart = plot(data)')
-            output = output[code_start:code_end]
-            
-        return output.strip()
+        # Initialize LLM
+        llm = TextGeneratorLLM(
+            text_gen=text_gen,
+            system_prompt="You are a code repair expert.",
+            temperature=textgen_config.temperature,
+            max_tokens=textgen_config.max_tokens
+        )
+
+        # Create agent
+        self.agent = initialize_agent(
+            tools=self.tools,
+            llm=llm,
+            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+            verbose=True
+        )
+
+    def _fix_syntax_errors(self, code: str) -> str:
+        """Tool to fix syntax errors"""
+        try:
+            ast.parse(code)
+            return "Code syntax is valid"
+        except SyntaxError as e:
+            return f"Found syntax error: {str(e)}"
+
+    def _validate_code_structure(self, code: str) -> str:
+        """Tool to validate code structure"""
+        issues = []
+        if "def plot(data):" not in code:
+            issues.append("Missing plot(data) function")
+        if "chart = plot(data)" not in code:
+            issues.append("Missing chart assignment")
+        return str(issues) if issues else "Code structure is valid"
+
+    def _clean_code(self, code: str) -> str:
+        """Tool to clean code"""
+        return self._clean_langchain_output(code)
 
     def repair(self, faulty_code: str) -> str:
-        """Repair code using rules first, then LangChain if needed."""
+        """Repair code using rule-based first, then agent if needed"""
         logger.info("Starting repair process...")
         
-        # Try rule-based fixes first
+        # Try rule-based first
         fixed_code, success, issues = self.rule_based.repair_code(faulty_code)
         
         if success:
             logger.info("Code fixed with rules or already valid")
             return fixed_code
             
-        # Use LangChain for complex fixes
-        logger.info("Rule-based repair failed, attempting LangChain fix")
+        # Use agent for complex fixes
+        logger.info("Rule-based repair failed, attempting Agent fix")
         try:
-            # Get imports from original code
-            original_imports = self.rule_based._extract_imports(faulty_code)
+            agent_response = self.agent.run({
+                "input": faulty_code,
+                "issues": issues
+            })
             
-            # Run LangChain
-            chain_response = self.chain.run(code=faulty_code)
-            
-            # Clean response and ensure imports
-            cleaned_code = chain_response.strip()
-            if '```' in cleaned_code:
-                cleaned_code = re.findall(r'```(?:python)?\n(.*?)\n```', cleaned_code, re.DOTALL)[0]
-            
-            # Preserve original imports
-            existing_imports = self.rule_based._extract_imports(cleaned_code)
-            for imp in original_imports:
-                if imp not in existing_imports:
-                    cleaned_code = imp + '\n' + cleaned_code
-            
-            # Validate and potentially fix with rules
+            # Clean and validate agent output
+            cleaned_code = self._clean_langchain_output(agent_response)
             is_valid, validation_issues = self.rule_based.validate_code(cleaned_code)
+            
             if is_valid:
                 return cleaned_code
                 
-            # Try one more time with rule-based repair
-            final_code, success, _ = self.rule_based.repair_code(cleaned_code)
-            if success:
-                return final_code
-                
-            logger.error(f"LangChain fix failed validation: {validation_issues}")
+            logger.error(f"Agent fix failed validation: {validation_issues}")
             return fixed_code
             
         except Exception as e:
-            logger.error(f"LangChain repair failed: {e}")
+            logger.error(f"Agent repair failed: {e}")
             return fixed_code

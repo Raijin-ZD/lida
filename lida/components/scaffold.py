@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from lida.datamodel import Goal
-print("Generating visualization code scaffold...")
+print("Generating vwwasfj;asfj;asj;kfasfj;")
 
 class ChartScaffold(object):
     """Return code scaffold for charts in multiple visualization libraries"""
@@ -140,46 +140,49 @@ def plot(data):
 chart = plot(data)
 """
         elif library == "datashader":
-            template = f"""
-import datashader as ds
-import datashader.transfer_functions as tf
+                template = f"""
 import holoviews as hv
-from holoviews.operation.datashader import datashade, shade
-import pandas as pd
+from holoviews.operation.datashader import datashade
+from datashader.colors import viridis
 import dask.dataframe as dd
-from colorcet import fire
+
 hv.extension('bokeh')
 
 def plot(data):
+    
+    #Generate an interactive visualization using Holoviews and Datashader.
+
+   #Args: data (pandas.DataFrame or dask.DataFrame): The input data to visualize.
+
+    #Returns:Holoviews object: The interactive visualization with axes and styling applied.
+   
     if isinstance(data, dd.DataFrame):
         data = data.compute()
-    
-    # Create points plot with HoloViews
-    points = hv.Points(data, kdims=['{x_axis}', '{y_axis}'])
-    
-    # Apply datashader to the points
-    shaded = datashade(points, cmap=fire)
-    
-    # Add title and axis labels
-    plot = shaded.opts(
-        title='{goal.question}',
+
+    # Create Holoviews Points and apply Datashader
+    points = hv.Points(data, [x='{x_axis}', 'y={y_axis}'])
+    shaded = datashade(points, cmap=viridis)
+
+    # Apply styling options
+    shaded = shaded.opts(
+        width=800,
+        height=600,
         xlabel='{x_axis}',
         ylabel='{y_axis}',
-        width=800, height=600,
-        tools=['hover']
+        title='Interactive Visualization',
+        tools=['hover'],  # Add hover tool for interactivity
     )
-    
-    return hv.render(plot)
 
-#always type the below line at the end of the code
+    return shaded
+
+# Always render the chart
 chart = plot(data)
 """
-            return template
+                return template
         else:
             raise ValueError(
                 "Unsupported library. Choose from 'matplotlib', 'seaborn', 'plotly', 'ggplot', 'altair', and 'datashader'."
             )
 
 
-        return template 
-
+        return template

@@ -14,6 +14,7 @@ import pandas as pd
 import plotly.io as pio
 import dask.dataframe as dd
 from colorcet import fire
+import holoviews as hv
 from lida.datamodel import ChartExecutorResponse, Summary, Goal
 import numpy as np
 from .viz.vizgenerator import VizGenerator
@@ -133,7 +134,7 @@ class ChartExecutor:
                     if not processed_code:
                         continue
 
-                    # Always attempt code repair first
+                    # Single code repair attempt
                     logger.info("\nSTARTING CODE REPAIR")
                     logger.info("-" * 30)
                     repaired_code = self.code_repair_agent.repair(processed_code)
@@ -148,14 +149,9 @@ class ChartExecutor:
                     else:
                         logger.info("✅ No repairs needed")
 
-                    # Then handle library-specific execution
+                    # Handle library-specific execution
                     if library == "datashader":
                         data_for_execution = data
-                        processed_code = processed_code.replace(
-                            "if isinstance(data, dd.DataFrame):",
-                            "if hasattr(data, 'compute'):"
-                        )
-                        
                         # Set up minimal globals for datashader
                         globals_dict = {
                             '__builtins__': __builtins__,
@@ -163,6 +159,7 @@ class ChartExecutor:
                             'ds': ds,
                             'tf': tf,
                             'np': np,
+                            'hv': hv,
                             'pd': pd,
                             'dd': dd,
                             'fire': fire
@@ -191,46 +188,14 @@ class ChartExecutor:
                         ))
                         
                     else:
-                        # Existing handling for other libraries
-                        # Try to repair code first
-                        try:
-                            logger.info("\nSTARTING CODE REPAIR")
-                            logger.info("-" * 30)
-                            repaired_code = self.code_repair_agent.repair(processed_code)
-                            
-                            if repaired_code != processed_code:
-                                logger.info("\n✨ CODE WAS REPAIRED!")
-                                logger.info("Original code:")
-                                logger.info(processed_code)
-                                logger.info("\nRepaired code:")
-                                logger.info(repaired_code)
-                                processed_code = repaired_code
-                            else:
-                                logger.info("✅ No repairs needed")
-                                
-                        except Exception as repair_error:
-                            logger.warning(f"❌ Code repair failed: {repair_error}")
-                            # Continue with original code if repair fails
-
                         # Prepare data
-                        #if isinstance(data, dd.DataFrame):
-                            #data_for_execution = data.compute() if library != "datashader" else data
-                        #else:
                         data_for_execution = data
-
-                        # Set up execution environment
+                        
+                        # Execute with globals
                         globals_dict = get_globals_dict(processed_code, data_for_execution)
                         
-                        # Execute code with error handling for numpy comparisons
-                        try:
-                            with np.errstate(all='ignore'):  # Suppress numpy warnings
-                                exec(processed_code, globals_dict)
-                        except ValueError as ve:
-                            if "truth value of an array" in str(ve):
-                                # Modify code to handle array comparisons
-                                processed_code = processed_code.replace(" == ", ".equals(")
-                                processed_code = processed_code.replace(" != ", ".ne(")
-                                exec(processed_code, globals_dict)
+                        with np.errstate(all='ignore'):
+                            exec(processed_code, globals_dict)
                         
                         chart = globals_dict.get("chart") or globals_dict.get("fig")
                         if chart is None:

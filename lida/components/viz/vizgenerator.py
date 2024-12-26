@@ -17,11 +17,11 @@ You are an expert data visualization assistant tasked with generating a complete
 5. Do not include any explanations or extra text.
 6. Start with import statements.
 """
-
+print("Hello, world!")
 class VizGenerator:
     """Generate visualizations from prompt"""
 
-    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge', api_key: str = None):
+    def __init__(self, model_type: str = 'cohere', model_name: str = 'command-xlarge-xnightly', api_key: str = "KYS55qCMzJTRg1dbNJxnkEsv5YQp2WQM8jjR6UEm"):
         self.scaffold = ChartScaffold()
         # Initialize text generator with default settings
         self.text_gen = llm(provider=model_type, model=model_name, api_key=api_key)
