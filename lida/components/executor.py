@@ -124,6 +124,7 @@ class ChartExecutor:
             charts = []
             
             # Process each code spec
+            print("Code specs:", code_specs)
             for code in code_specs:
                 try:
                     logger.info("\n" + "=" * 50)
@@ -135,6 +136,7 @@ class ChartExecutor:
                         continue
 
                     # Single code repair attempt
+                    print("Code before repair:", processed_code)
                     logger.info("\nSTARTING CODE REPAIR")
                     logger.info("-" * 30)
                     repaired_code = self.code_repair_agent.repair(processed_code)
@@ -174,8 +176,14 @@ class ChartExecutor:
                             raise ValueError("No chart object was created")
 
                         # Convert to PNG
+                        #buf = io.BytesIO()
+                        #img.to_pil().save(buf, format='PNG')
                         buf = io.BytesIO()
-                        img.to_pil().save(buf, format='PNG')
+                        print("Image:")
+                        if isinstance(img, hv.Element):
+                            hv.save(img, buf, fmt='png', backend='matplotlib')
+                        else:
+                            img.to_pil().save(buf, format='PNG')
                         buf.seek(0)
                         plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
                         

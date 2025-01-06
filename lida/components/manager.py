@@ -143,6 +143,7 @@ class Manager:
             textgen_config=textgen_config,
             library=library
         )
+        print("Code Specs:", code_specs)
         
         # Then execute the generated code
         charts = self.executor.execute(

@@ -75,7 +75,7 @@ def read_dataframe(file_location: str, encoding: str = 'utf-8') -> Union[pd.Data
 
     # Decide on loading method based on file size
     try:
-        if file_size_mb > 110:
+        if file_size_mb > 400:
             # For files over 400MB, use Dask for distributed loading
             if file_extension in ['csv', 'tsv']:
                 print("Loading data as a Dask DataFrame.")

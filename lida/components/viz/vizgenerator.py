@@ -14,8 +14,11 @@ You are an expert data visualization assistant tasked with generating a complete
 2. Avoid using advanced or less-known features unless absolutely necessary.
 3. Handle both Pandas and Dask DataFrames.
 4. Return the visualization object (e.g., `fig`, `chart`, `img`) directly from the `plot` function.
-5. Do not include any explanations or extra text.
+5. Do not include any explanations or extra text or comments.
 6. Start with import statements.
+7.Create visualization code without any comments or explanations.
+8.Only include required imports, function definition, and chart assignment.
+9.Code must be clean, minimal and follow exact template structure
 """
 print("Hello, world!")
 class VizGenerator:
@@ -37,7 +40,7 @@ class VizGenerator:
         try:
             # Get template from scaffold
             template = self.scaffold.get_template(goal, library)
-            
+            print(f"Template: {template}")
             # Prepare messages for LLM
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -49,7 +52,7 @@ Template structure:
 
 Goal: {goal.question}
 
-Generate only the code, no explanations."""}
+Generate only the code, no explanations or comments."""}
             ]
 
             # Use text_gen to generate code with config
