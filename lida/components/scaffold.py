@@ -154,16 +154,18 @@ hv.extension('matplotlib')
 def plot(data):
     if isinstance(data, dd.DataFrame):
         data = data.compute()
-    
-    #canvas = ds.Canvas(plot_width=800, plot_height=600)
-    #agg = canvas.points(data, '{x_axis}', '{y_axis}')
-    #img = tf.shade(agg, cmap=fire)
-    #hv_ds = hv.Image(img.data)
-    #plot = hv_ds.opts(
-    #    xlabel='{x_axis}',
-    #    ylabel='{y_axis}',
-    #    title='{goal.question}',
-    #)
+        
+    # Insert plotting code below. Example:
+    canvas = ds.Canvas(plot_width=800, plot_height=600)
+    agg = canvas.points(data, '{x_axis}', '{y_axis}')
+    img = tf.shade(agg, cmap=fire)
+
+    hv_ds = hv.Image(img.data)
+    plot = hv_ds.opts(
+        xlabel='{x_axis}',
+        ylabel='{y_axis}',
+        title='{goal.question}',
+    )
     
     return plot
 

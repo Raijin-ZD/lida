@@ -9,7 +9,7 @@ import re
 
 logger = logging.getLogger("code_repair_agent")
 logger.setLevel(logging.DEBUG)
-
+print("Code repair agent loaded")
 class RuleBasedRepair:
     """Handles basic code structure and syntax validation/repair."""
     
