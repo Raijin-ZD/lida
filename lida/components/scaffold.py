@@ -149,7 +149,7 @@ import pandas as pd
 import dask.dataframe as dd
 from colorcet import fire
 
-hv.extension('matplotlib')
+hv.extension('bokeh')
 
 def plot(data):
     if isinstance(data, dd.DataFrame):
@@ -162,9 +162,12 @@ def plot(data):
 
     hv_ds = hv.Image(img.data)
     plot = hv_ds.opts(
+        width=800,
+        height=600,
         xlabel='{x_axis}',
         ylabel='{y_axis}',
         title='{goal.question}',
+        colorbar=True
     )
     
     return plot

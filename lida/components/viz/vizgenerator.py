@@ -10,7 +10,7 @@ system_prompt = """
 You are an expert data visualization assistant tasked with generating a complete, executable Python script to create a visualization based on the provided dataset summary and visualization goal.
 
 **Requirements:**
-1. Write simple, clear code using only basic, well-documented functions from the specified visualization library.
+1. Write simple, clear code using only basic and the Template, well-documented functions from the specified visualization library.
 2. Avoid using advanced or less-known features unless absolutely necessary.
 3. Handle both Pandas and Dask DataFrames.
 4. Return the visualization object (e.g., `fig`, `chart`, `img`) directly from the `plot` function.
@@ -55,7 +55,7 @@ Template structure:
 
 Goal: {goal.question}
 
-Generate only the code, no explanations or comments."""}
+Generate only the code following the template, no explanations or comments."""}
             ]
 
             # Use text_gen to generate code with config

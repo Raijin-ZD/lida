@@ -181,7 +181,7 @@ class ChartExecutor:
                         buf = io.BytesIO()
                         print("Image:")
                         if isinstance(img, hv.Element):
-                            hv.save(img, buf, fmt='png', backend='matplotlib')
+                            hv.save(img, buf, fmt='png', backend='bokeh')
                         else:
                             img.to_pil().save(buf, format='PNG')
                         buf.seek(0)
