@@ -147,7 +147,6 @@ import datashader.transfer_functions as tf
 import holoviews as hv
 import pandas as pd
 import dask.dataframe as dd
-from colorcet import fire
 
 hv.extension('bokeh')
 
@@ -157,8 +156,9 @@ def plot(data):
         
     # Insert plotting code below. Example:
     canvas = ds.Canvas(plot_width=800, plot_height=600)
+    #canvas.points for scatterplot , canvas.line for line plot
     agg = canvas.points(data, '{x_axis}', '{y_axis}')
-    img = tf.shade(agg, cmap=fire)
+    img = tf.shade(agg)
 
     hv_ds = hv.Image(img.data)
     plot = hv_ds.opts(
